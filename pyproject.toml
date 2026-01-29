@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oriole"
+version = "0.1.0"
+description = "Python rewrite of mocasa/oriole"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [{name = "Broad Institute"}]
+dependencies = [
+  "numpy>=1.23",
+  "tomli>=2.0",
+  "tomli-w>=1.0",
+]
+
+[project.scripts]
+oriole = "oriole.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
