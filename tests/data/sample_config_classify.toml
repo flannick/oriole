@@ -1,0 +1,98 @@
+[files]
+params = "sample_params.json"
+
+[[gwas]]
+name = "fi"
+file = "aligned_fi_1000.tsv"
+
+[gwas.cols]
+id = "VAR_ID"
+effect = "BETA"
+se = "SE"
+
+[[gwas]]
+name = "isiadj"
+file = "aligned_isiadj_1000.tsv"
+
+[gwas.cols]
+id = "VAR_ID"
+effect = "BETA"
+se = "SE"
+
+[[gwas]]
+name = "bmi"
+file = "aligned_bmi_1000.tsv"
+
+[gwas.cols]
+id = "VAR_ID"
+effect = "BETA"
+se = "SE"
+
+[[gwas]]
+name = "whradj"
+file = "aligned_whradj_1000.tsv"
+
+[gwas.cols]
+id = "VAR_ID"
+effect = "BETA"
+se = "SE"
+
+[[gwas]]
+name = "bfp"
+file = "aligned_bfp_1000.tsv"
+
+[gwas.cols]
+id = "VAR_ID"
+effect = "BETA"
+se = "SE"
+
+[[gwas]]
+name = "vattogfat"
+file = "aligned_vattogfat_1000.tsv"
+
+[gwas.cols]
+id = "VAR_ID"
+effect = "BETA"
+se = "SE"
+
+[[gwas]]
+name = "tgtohdl"
+file = "aligned_tgtohdl_1000.tsv"
+
+[gwas.cols]
+id = "VAR_ID"
+effect = "BETA"
+se = "SE"
+
+[[gwas]]
+name = "adipo"
+file = "aligned_adipo_1000.tsv"
+
+[gwas.cols]
+id = "VAR_ID"
+effect = "BETA"
+se = "SE"
+
+[[gwas]]
+name = "homair"
+file = "aligned_homair_1000.tsv"
+
+[gwas.cols]
+id = "VAR_ID"
+effect = "BETA"
+se = "SE"
+
+[train]
+ids_file = "sample_1000_ids.txt"
+n_steps_burn_in = 5
+n_samples_per_iteration = 5
+n_iterations_per_round = 1
+n_rounds = 1
+normalize_mu_to_one = true
+
+[classify]
+params_override = {}
+n_steps_burn_in = 5
+n_samples = 50
+out_file = "sample_classify_out.tsv"
+trace_ids = []
