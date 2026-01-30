@@ -26,13 +26,13 @@ Update the file paths to point at your GWAS files and variant ID list.
 ### 3) Train
 
 ```bash
-oriole train -f config.toml --analytical
+oriole train -f config.toml
 ```
 
 ### 4) Classify
 
 ```bash
-oriole classify -f config.toml --analytical
+oriole classify -f config.toml
 ```
 
 ---
@@ -83,10 +83,12 @@ Tests:
 oriole train -f config.toml
 ```
 
-Analytical EM (fast, vectorized):
+Analytical EM is the default.
+
+Gibbs sampling (slower, stochastic):
 
 ```bash
-oriole train -f config.toml --analytical
+oriole train -f config.toml --gibbs
 ```
 
 ### Classification
@@ -95,10 +97,12 @@ oriole train -f config.toml --analytical
 oriole classify -f config.toml
 ```
 
-Analytical (fast, vectorized):
+Analytical inference is the default.
+
+Gibbs sampling (slower, stochastic):
 
 ```bash
-oriole classify -f config.toml --analytical
+oriole classify -f config.toml --gibbs
 ```
 
 ---
@@ -162,8 +166,8 @@ If no weight is provided, it defaults to 1.0.
 
 ## Flags
 
-- `--analytical`  
-  Use closed-form inference instead of Gibbs sampling. Supported for classify and train.
+- `--gibbs`  
+  Use Gibbs sampling instead of analytical inference. Supported for classify and train.
 
 - `--match-rust`  
   Preserves Rust’s initial parameter estimation behavior (uses betas to estimate SE statistics).
@@ -197,7 +201,7 @@ From `src/oriole`:
 pytest -q
 ```
 
-The test suite trains and classifies analytically using the bundled 1000-variant dataset.
+The test suite trains and classifies analytically (the default) using the bundled 1000-variant dataset.
 
 ---
 
@@ -206,14 +210,13 @@ The test suite trains and classifies analytically using the bundled 1000-variant
 ### Train
 
 ```bash
-oriole train -f config.toml [--analytical] [--chunk-size N] [--match-rust]
+oriole train -f config.toml [--gibbs] [--chunk-size N] [--match-rust]
 ```
 
 ### Classify
 
 ```bash
-oriole classify -f config.toml [--analytical] [--chunk-size N]
+oriole classify -f config.toml [--gibbs] [--chunk-size N]
 ```
 
 ---
-

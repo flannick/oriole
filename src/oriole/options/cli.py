@@ -44,7 +44,12 @@ def _build_parser() -> argparse.ArgumentParser:
         sub.add_argument("-f", "--conf-file", dest="conf_file")
         sub.add_argument("-d", "--dry", action="store_true")
         sub.add_argument("--match-rust", action="store_true", dest="match_rust")
-        sub.add_argument("--analytical", action="store_true", dest="analytical")
+        sub.add_argument(
+            "--gibbs",
+            action="store_true",
+            dest="gibbs",
+            help="Use Gibbs sampling instead of analytical inference.",
+        )
         sub.add_argument(
             "--chunk-size",
             dest="chunk_size",
@@ -85,7 +90,7 @@ def get_choice(argv: list[str] | None = None):
             config_file=args.conf_file,
             dry=bool(args.dry),
             match_rust=bool(args.match_rust),
-            analytical=bool(args.analytical),
+            analytical=not bool(args.gibbs),
             chunk_size=args.chunk_size,
         )
 

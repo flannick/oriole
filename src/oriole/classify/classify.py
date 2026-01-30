@@ -55,7 +55,7 @@ class Observer(TaskQueueObserver):
 def classify_or_check(
     config: Config,
     dry: bool,
-    analytical: bool = False,
+    analytical: bool = True,
     chunk_size: int | None = None,
 ) -> None:
     params = read_params_from_file(config.files.params)
@@ -87,7 +87,7 @@ def classify(
     data: GwasData,
     params: Params,
     config: Config,
-    analytical: bool = False,
+    analytical: bool = True,
     chunk_size: int | None = None,
 ) -> None:
     classify_config = config.classify

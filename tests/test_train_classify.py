@@ -4,8 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = ROOT / "src" / "oriole" / "tests" / "data"
+ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = ROOT / "tests" / "data"
 
 
 def _run(cmd, cwd, env):
@@ -17,12 +17,12 @@ def test_train_and_classify_analytical(tmp_path):
     shutil.copytree(DATA_DIR, work_dir)
 
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(ROOT / "src" / "oriole" / "src")
+    env["PYTHONPATH"] = str(ROOT / "src")
 
     train_cfg = work_dir / "sample_config_train.toml"
     classify_cfg = work_dir / "sample_config_classify.toml"
 
-    # Train (analytical)
+    # Train (analytical default)
     _run(
         [
             sys.executable,
@@ -31,7 +31,6 @@ def test_train_and_classify_analytical(tmp_path):
             "train",
             "-f",
             str(train_cfg),
-            "--analytical",
             "--chunk-size",
             "1000",
         ],
@@ -42,7 +41,7 @@ def test_train_and_classify_analytical(tmp_path):
     params_out = work_dir / "sample_params_out.json"
     assert params_out.exists()
 
-    # Classify (analytical) using bundled sample params
+    # Classify (analytical default) using bundled sample params
     _run(
         [
             sys.executable,
@@ -51,7 +50,6 @@ def test_train_and_classify_analytical(tmp_path):
             "classify",
             "-f",
             str(classify_cfg),
-            "--analytical",
             "--chunk-size",
             "1000",
         ],

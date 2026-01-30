@@ -36,7 +36,7 @@ def train_or_check(
     config: Config,
     dry: bool,
     match_rust: bool = False,
-    analytical: bool = False,
+    analytical: bool = True,
     chunk_size: int | None = None,
 ) -> None:
     data = load_data(config, Action.TRAIN)
@@ -58,7 +58,7 @@ def train(
     data,
     config: Config,
     match_rust: bool = False,
-    analytical: bool = False,
+    analytical: bool = True,
     chunk_size: int | None = None,
 ) -> None:
     n_traits = data.gwas_data.meta.n_traits()

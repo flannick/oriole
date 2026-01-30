@@ -57,7 +57,7 @@ class ClassifyWorkerLauncher:
         data: GwasData,
         params: Params,
         config: ClassifyConfig,
-        analytical: bool = False,
+        analytical: bool = True,
     ) -> None:
         self.data = data
         self.params = params
@@ -83,7 +83,7 @@ def classify_worker(
     in_queue,
     out_queue,
     i_thread: int,
-    analytical: bool = False,
+    analytical: bool = True,
 ) -> None:
     while True:
         message: MessageToWorker = out_queue.get()
