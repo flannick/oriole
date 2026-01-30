@@ -12,7 +12,7 @@ from .vars import Vars
 
 
 class ETracer(Protocol):
-    def trace_e(self, e: float) -> None: ...
+    def trace_e(self, e_values) -> None: ...
 
 
 class Sampler:
@@ -42,10 +42,12 @@ class Sampler:
     ) -> None:
         for var_type, i_data_point, i_trait in vars.indices():
             if var_type == "e":
-                e = self._gibbs.draw_e(vars, params, i_data_point)
+                e = self._gibbs.draw_e_component(
+                    vars, params, i_data_point, int(i_trait)
+                )
+                vars.es[i_data_point, int(i_trait)] = e
                 if e_tracer is not None:
-                    e_tracer.trace_e(e)
-                vars.es[i_data_point] = e
+                    e_tracer.trace_e(vars.es[i_data_point])
             else:
                 vars.ts[i_data_point, i_trait] = self._gibbs.draw_t(
                     data, vars, params, i_data_point, i_trait, t_pinned

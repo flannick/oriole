@@ -37,13 +37,18 @@ class MessageToCentral:
 
 
 class TrainWorkerLauncher:
-    def __init__(self, data: LoadedData, params: Params, config: TrainConfig) -> None:
+    def __init__(
+        self, data: LoadedData, params: Params, config: TrainConfig, mask: np.ndarray
+    ) -> None:
         self.data = data
         self.params = params
         self.config = config
+        self.mask = mask
 
     def launch(self, in_queue, out_queue, i_thread: int) -> None:
-        train_worker(self.data, self.params, in_queue, out_queue, i_thread, self.config)
+        train_worker(
+            self.data, self.params, in_queue, out_queue, i_thread, self.config, self.mask
+        )
 
 
 def train_worker(
@@ -53,6 +58,7 @@ def train_worker(
     out_queue,
     i_thread: int,
     config: TrainConfig,
+    mask: np.ndarray,
 ) -> None:
     vars = Vars.initial_vars(data.gwas_data, params)
     rng = np.random.default_rng()
@@ -67,7 +73,7 @@ def train_worker(
         if message.kind == "take_n_samples":
             sampler.reset_stats()
             sampler.sample_n(data.gwas_data, params, vars, int(message.payload), None, t_pinned)
-            params_new = sampler.var_stats.compute_new_params(data.weights)
+            params_new = sampler.var_stats.compute_new_params(data.weights, mask)
             in_queue.put(MessageToCentral(i_thread, params_new))
         elif message.kind == "set_new_params":
             params = message.payload

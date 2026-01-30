@@ -63,6 +63,6 @@ def test_train_and_classify_analytical(tmp_path):
     # quick sanity check: header + 1000 rows
     with out_file.open("r", encoding="utf-8") as handle:
         header = handle.readline().strip("\n")
-        assert header.startswith("id\te_mean_samp\te_std_samp\te_mean_calc")
+        assert header.startswith("id\tE_mean_samp\tE_std_samp\tE_mean_calc")
         n_rows = sum(1 for _ in handle)
     assert n_rows == 1000

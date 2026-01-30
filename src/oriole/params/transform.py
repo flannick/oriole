@@ -9,10 +9,10 @@ def scale_sigmas(config: ScaleSigmasOptions) -> None:
     sigmas = [sigma * config.scale for sigma in params.sigmas]
     scaled = Params(
         trait_names=params.trait_names,
-        mu=params.mu,
-        tau=params.tau,
+        endo_names=params.endo_names,
+        mus=params.mus,
+        taus=params.taus,
         betas=params.betas,
         sigmas=sigmas,
     )
     write_params_to_file(scaled, config.out_file)
-

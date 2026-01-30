@@ -6,12 +6,12 @@ from ..params import ParamIndex, Params
 
 
 class ParamTraceFileWriter:
-    def __init__(self, path: Path, n_traits: int) -> None:
+    def __init__(self, path: Path, n_traits: int, n_endos: int) -> None:
         self.path = path
         self.index = 0
         with self.path.open("w", encoding="utf-8") as handle:
             handle.write("index")
-            for param_index in ParamIndex.all(n_traits):
+            for param_index in ParamIndex.all(n_traits, n_endos):
                 handle.write(f"\t{param_index}")
             handle.write("\n")
 
@@ -20,6 +20,6 @@ class ParamTraceFileWriter:
         n_traits = params.n_traits()
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(str(self.index))
-            for param_index in ParamIndex.all(n_traits):
+            for param_index in ParamIndex.all(n_traits, params.n_endos()):
                 handle.write(f"\t{params[param_index]}")
             handle.write("\n")

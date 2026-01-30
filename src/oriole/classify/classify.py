@@ -48,8 +48,7 @@ class Observer(TaskQueueObserver):
         self._writer.close()
 
     def _header(self) -> str:
-        traits_part = "\t".join(self.meta.trait_names)
-        return f"id\te_mean_samp\te_std_samp\te_mean_calc\t{traits_part}\n"
+        return format_header(self.meta)
 
 
 def classify_or_check(
@@ -60,10 +59,10 @@ def classify_or_check(
 ) -> None:
     params = read_params_from_file(config.files.params)
     check_params(config, params)
-    print(f"Read from file mu = {params.mu}, tau = {params.tau}")
+    print(f"Read from file mus = {params.mus}, taus = {params.taus}")
     if config.classify.params_override is not None:
         params = params.plus_overwrite(config.classify.params_override)
-        print(f"After overwrite, mu = {params.mu}, tau = {params.tau}")
+        print(f"After overwrite, mus = {params.mus}, taus = {params.taus}")
     data = load_data(config, Action.CLASSIFY)
     if dry:
         print("User picked dry run only, so doing nothing.")
@@ -134,9 +133,6 @@ def classify_vectorized(
                         sampled = analytical_classification_chunk(
                             params_reduced, single.betas, single.ses
                         )
-                        e_mean = float(sampled.e_mean[0])
-                        e_std = float(sampled.e_std[0])
-                        t_means = sampled.t_means[0]
                     else:
                         sampled = gibbs_classification_chunk(
                             params_reduced,
@@ -146,22 +142,13 @@ def classify_vectorized(
                             config.n_samples,
                             config.t_pinned or False,
                         )
-                        e_mean = float(sampled.e_mean[0])
-                        e_std = float(sampled.e_std[0])
-                        t_means = sampled.t_means[0]
-                    mu_calc = float(
-                        calculate_mu_chunk(
-                            params_reduced,
-                            single.betas,
-                            single.ses,
-                        )[0]
-                    )
-                    row = (
-                        f"{single.meta.var_ids[0]}\t{e_mean}\t{e_std}\t{mu_calc}\t"
-                        + "\t".join(str(v) for v in t_means)
-                        + "\n"
-                    )
-                    handle.write(row)
+                    mu_calc = calculate_mu_chunk(
+                        params_reduced,
+                        single.betas,
+                        single.ses,
+                    )[0]
+                    classification = Classification(sampled, mu_calc)
+                    handle.write(format_entry(single.meta.var_ids[0], classification))
                 continue
 
             if analytical:
@@ -177,12 +164,15 @@ def classify_vectorized(
                 )
             mu_calc = calculate_mu_chunk(params, betas, ses)
             for i, var_id in enumerate(meta.var_ids[start:end]):
-                row = (
-                    f"{var_id}\t{sampled.e_mean[i]}\t{sampled.e_std[i]}\t{mu_calc[i]}\t"
-                    + "\t".join(str(v) for v in sampled.t_means[i])
-                    + "\n"
+                classification = Classification(
+                    SampledClassification(
+                        e_mean=sampled.e_mean[i],
+                        e_std=sampled.e_std[i],
+                        t_means=sampled.t_means[i],
+                    ),
+                    mu_calc[i],
                 )
-                handle.write(row)
+                handle.write(format_entry(var_id, classification))
 
 
 def write_out_file(file: str, meta: Meta, classifications: list[Classification]) -> None:
@@ -193,14 +183,31 @@ def write_out_file(file: str, meta: Meta, classifications: list[Classification])
 
 
 def format_header(meta: Meta) -> str:
-    traits_part = "\t".join(meta.trait_names)
-    return f"id\te_mean_samp\te_std_samp\te_mean_calc\t{traits_part}\n"
+    parts = ["id"]
+    for endo in meta.endo_names:
+        parts.append(f"{endo}_mean_samp")
+        parts.append(f"{endo}_std_samp")
+        parts.append(f"{endo}_mean_calc")
+    parts.extend(meta.trait_names)
+    return "\t".join(parts) + "\n"
 
 
 def format_entry(var_id: str, classification: Classification) -> str:
     sampled: SampledClassification = classification.sampled
-    t_means_part = "\t".join(str(value) for value in sampled.t_means)
-    return (
-        f"{var_id}\t{sampled.e_mean}\t{sampled.e_std}\t"
-        f"{classification.e_mean_calculated}\t{t_means_part}\n"
-    )
+    e_mean = np.asarray(sampled.e_mean, dtype=float)
+    e_std = np.asarray(sampled.e_std, dtype=float)
+    if e_mean.ndim == 2:
+        e_mean = e_mean[0]
+    if e_std.ndim == 2:
+        e_std = e_std[0]
+    e_calc = np.asarray(classification.e_mean_calculated, dtype=float)
+    parts = [var_id]
+    for idx in range(len(e_mean)):
+        parts.append(str(float(e_mean[idx])))
+        parts.append(str(float(e_std[idx])))
+        parts.append(str(float(e_calc[idx])))
+    t_means = np.asarray(sampled.t_means, dtype=float)
+    if t_means.ndim == 2:
+        t_means = t_means[0]
+    parts.extend(str(float(value)) for value in t_means)
+    return "\t".join(parts) + "\n"

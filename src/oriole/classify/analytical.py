@@ -1,39 +1,42 @@
 from __future__ import annotations
 
-from math import sqrt
-
 import numpy as np
 
 from ..params import Params
 from ..sample.var_stats import SampledClassification
 
 
-def analytical_classification(params: Params, betas: list[float], ses: list[float]) -> SampledClassification:
-    tau2 = params.tau ** 2
-    inv_var = 1.0 / tau2
-    v_list = []
-    for i in range(len(params.betas)):
-        v = params.sigmas[i] ** 2 + ses[i] ** 2
-        v_list.append(v)
-        inv_var += (params.betas[i] ** 2) / v
+def _posterior_mean_cov(
+    params: Params, betas: np.ndarray, ses: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    B = np.asarray(params.betas, dtype=float)
+    sigma2 = np.asarray(params.sigmas, dtype=float) ** 2
+    tau2 = np.asarray(params.taus, dtype=float) ** 2
+    mu = np.asarray(params.mus, dtype=float)
+    v = sigma2 + ses**2
+    W = np.diag(1.0 / v)
+    tau_inv = np.diag(1.0 / tau2)
+    C = np.linalg.inv(tau_inv + B.T @ W @ B)
+    m = C @ (tau_inv @ mu + B.T @ W @ betas)
+    return m, C
 
-    v_e = 1.0 / inv_var
-    mean_term = params.mu / tau2
-    for i in range(len(params.betas)):
-        mean_term += params.betas[i] * betas[i] / v_list[i]
-    m_e = v_e * mean_term
-    e_std = sqrt(v_e)
 
-    t_means = []
-    for i in range(len(params.betas)):
-        sigma2 = params.sigmas[i] ** 2
-        se2 = ses[i] ** 2
-        denom = sigma2 + se2
-        a = sigma2 / denom
-        b = (se2 / denom) * params.betas[i]
-        t_means.append(a * betas[i] + b * m_e)
+def analytical_classification(
+    params: Params, betas: list[float], ses: list[float]
+) -> SampledClassification:
+    betas_arr = np.asarray(betas, dtype=float)
+    ses_arr = np.asarray(ses, dtype=float)
+    m, C = _posterior_mean_cov(params, betas_arr, ses_arr)
+    e_std = np.sqrt(np.diag(C))
 
-    return SampledClassification(e_mean=m_e, e_std=e_std, t_means=t_means)
+    B = np.asarray(params.betas, dtype=float)
+    sigma2 = np.asarray(params.sigmas, dtype=float) ** 2
+    v = sigma2 + ses_arr**2
+    a = sigma2 / v
+    b = ses_arr**2 / v
+    t_means = a * betas_arr + b * (B @ m)
+
+    return SampledClassification(e_mean=m, e_std=e_std, t_means=t_means)
 
 
 def analytical_classification_chunk(
@@ -41,29 +44,32 @@ def analytical_classification_chunk(
     betas_obs: np.ndarray,
     ses: np.ndarray,
 ) -> SampledClassification:
-    beta = np.asarray(params.betas, dtype=float)
-    sigma2 = np.asarray(params.sigmas, dtype=float) ** 2
-    tau2 = params.tau ** 2
-    se2 = ses ** 2
-    v = sigma2[None, :] + se2
-    inv_var = (1.0 / tau2) + np.sum((beta[None, :] ** 2) / v, axis=1)
-    v_e = 1.0 / inv_var
-    mean_term = (params.mu / tau2) + np.sum(beta[None, :] * betas_obs / v, axis=1)
-    m_e = v_e * mean_term
-    e_std = np.sqrt(v_e)
+    n_vars = betas_obs.shape[0]
+    n_endos = params.n_endos()
+    n_traits = params.n_traits()
+    e_mean = np.zeros((n_vars, n_endos), dtype=float)
+    e_std = np.zeros((n_vars, n_endos), dtype=float)
+    t_means = np.zeros((n_vars, n_traits), dtype=float)
+    for i in range(n_vars):
+        sampled = analytical_classification(
+            params, betas_obs[i].tolist(), ses[i].tolist()
+        )
+        e_mean[i] = sampled.e_mean
+        e_std[i] = sampled.e_std
+        t_means[i] = sampled.t_means
+    return SampledClassification(e_mean=e_mean, e_std=e_std, t_means=t_means)
 
-    a = sigma2[None, :] / v
-    b = (se2 / v) * beta[None, :]
-    t_means = a * betas_obs + b * m_e[:, None]
-    return SampledClassification(e_mean=m_e, e_std=e_std, t_means=t_means)
+
+def calculate_mu_vec(params: Params, betas: list[float], ses: list[float]) -> np.ndarray:
+    betas_arr = np.asarray(betas, dtype=float)
+    ses_arr = np.asarray(ses, dtype=float)
+    m, _ = _posterior_mean_cov(params, betas_arr, ses_arr)
+    return m
 
 
 def calculate_mu_chunk(params: Params, betas_obs: np.ndarray, ses: np.ndarray) -> np.ndarray:
-    beta = np.asarray(params.betas, dtype=float)
-    sigma2 = np.asarray(params.sigmas, dtype=float) ** 2
-    tau2 = params.tau ** 2
-    se2 = ses ** 2
-    v = sigma2[None, :] + se2
-    numerator = (params.mu / tau2) + np.sum(beta[None, :] * betas_obs / v, axis=1)
-    denominator = (1.0 / tau2) + np.sum((beta[None, :] ** 2) / v, axis=1)
-    return numerator / denominator
+    n_vars = betas_obs.shape[0]
+    out = np.zeros((n_vars, params.n_endos()), dtype=float)
+    for i in range(n_vars):
+        out[i] = calculate_mu_vec(params, betas_obs[i].tolist(), ses[i].tolist())
+    return out

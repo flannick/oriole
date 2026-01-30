@@ -113,6 +113,8 @@ def test_scatter_compare_oriole_mocasa():
     mocasa = _load_params(mocasa_params)
 
     oriole_betas = oriole["betas"]
+    if oriole_betas and isinstance(oriole_betas[0], list):
+        oriole_betas = [row[0] for row in oriole_betas]
     mocasa_betas = mocasa["betas"]
 
     fig_path = FIGURES / "compare_oriole_mocasa_betas.png"

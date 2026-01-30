@@ -22,12 +22,16 @@ DELIM_LIST = [";", "\t", ",", " "]
 class Meta:
     trait_names: list[str]
     var_ids: list[str]
+    endo_names: list[str]
 
     def n_data_points(self) -> int:
         return len(self.var_ids)
 
     def n_traits(self) -> int:
         return len(self.trait_names)
+
+    def n_endos(self) -> int:
+        return len(self.endo_names)
 
 
 @dataclass
@@ -52,7 +56,7 @@ class GwasData:
         trait_names = [self.meta.trait_names[i_col] for i_col in is_col]
         betas = self.betas[i_row, is_col].reshape(1, -1)
         ses = self.ses[i_row, is_col].reshape(1, -1)
-        meta = Meta(trait_names=trait_names, var_ids=[var_id])
+        meta = Meta(trait_names=trait_names, var_ids=[var_id], endo_names=self.meta.endo_names)
         return GwasData(meta=meta, betas=betas, ses=ses), is_col
 
     def __str__(self) -> str:
@@ -139,7 +143,8 @@ def load_data(config: Config, action: Action) -> LoadedData:
                         f"Missing se for trait {trait_name} for var id {var_id}"
                     )
 
-    meta = Meta(trait_names=trait_names, var_ids=var_ids)
+    endo_names = [item.name for item in config.endophenotypes]
+    meta = Meta(trait_names=trait_names, var_ids=var_ids, endo_names=endo_names)
     gwas_data = GwasData(meta=meta, betas=betas, ses=ses)
     return LoadedData(gwas_data=gwas_data, weights=weights)
 

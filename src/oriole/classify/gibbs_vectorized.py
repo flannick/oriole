@@ -18,41 +18,43 @@ def gibbs_classification_chunk(
     beta = np.asarray(params.betas, dtype=float)
     sigma = np.asarray(params.sigmas, dtype=float)
     sigma2 = sigma ** 2
-    tau2 = params.tau ** 2
+    tau2 = np.asarray(params.taus, dtype=float) ** 2
+    mu = np.asarray(params.mus, dtype=float)
     n_vars, n_traits = betas_obs.shape
+    n_endos = params.n_endos()
 
-    e = np.full(n_vars, params.mu, dtype=float)
-    t = e[:, None] * beta[None, :]
+    e = np.tile(mu[None, :], (n_vars, 1))
+    t = e @ beta.T
 
-    inv_var_e = (1.0 / tau2) + np.sum((beta / sigma) ** 2)
-    var_e = 1.0 / inv_var_e
-    std_e = np.sqrt(var_e)
+    sigma2_inv = 1.0 / sigma2
+    tau2_inv = 1.0 / tau2
+    c_inv = np.diag(tau2_inv) + beta.T @ (sigma2_inv[:, None] * beta)
+    c = np.linalg.inv(c_inv)
+    chol_c = np.linalg.cholesky(c)
 
     se2 = ses ** 2
     var_t = 1.0 / (1.0 / sigma2[None, :] + 1.0 / se2)
     std_t = np.sqrt(var_t)
 
     def update_e():
-        mean_e = var_e * (
-            (params.mu / tau2) + np.sum(beta[None, :] * t / sigma2[None, :], axis=1)
-        )
-        return rng.normal(loc=mean_e, scale=std_e)
+        rhs = (t / sigma2[None, :]) @ beta + (mu * tau2_inv)[None, :]
+        mean_e = rhs @ c
+        z = rng.normal(size=(n_vars, n_endos))
+        return mean_e + z @ chol_c.T
 
     def update_t(e_vals):
         if t_pinned:
             return betas_obs.copy()
-        mean_t = var_t * (
-            (beta[None, :] * e_vals[:, None] / sigma2[None, :])
-            + (betas_obs / se2)
-        )
+        mu_e = e_vals @ beta.T
+        mean_t = var_t * ((mu_e / sigma2[None, :]) + (betas_obs / se2))
         return rng.normal(loc=mean_t, scale=std_t)
 
     for _ in range(n_burn_in):
         e = update_e()
         t = update_t(e)
 
-    e_sum = np.zeros(n_vars, dtype=float)
-    e2_sum = np.zeros(n_vars, dtype=float)
+    e_sum = np.zeros((n_vars, n_endos), dtype=float)
+    e2_sum = np.zeros((n_vars, n_endos), dtype=float)
     t_sum = np.zeros((n_vars, n_traits), dtype=float)
 
     for _ in range(n_samples):
@@ -67,4 +69,3 @@ def gibbs_classification_chunk(
     e_std = np.sqrt(np.maximum(e_var, 0.0))
     t_means = t_sum / n_samples
     return SampledClassification(e_mean=e_mean, e_std=e_std, t_means=t_means)
-

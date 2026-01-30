@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .exact import calculate_mu
-from .analytical import analytical_classification
+from .analytical import analytical_classification, calculate_mu_vec
 from ..data import GwasData
 from ..options.config import ClassifyConfig
 from ..params import Params
@@ -44,9 +43,10 @@ class ClassifyETracer(ETracer):
     def __init__(self, handle) -> None:
         self._handle = handle
 
-    def trace_e(self, e: float) -> None:
+    def trace_e(self, e_values) -> None:
         try:
-            self._handle.write(f"{e}\n")
+            values = "\t".join(str(float(value)) for value in e_values)
+            self._handle.write(f"{values}\n")
         except Exception as exc:
             print(f"Could not write E trace: {exc}")
 
@@ -130,7 +130,7 @@ def classify_worker(
                     t_pinned,
                 )
                 sampled = sampler.var_stats.calculate_classification()
-            mu_calculated = calculate_mu(
+            mu_calculated = calculate_mu_vec(
                 params_reduced,
                 list(data_point.betas[0]),
                 list(data_point.ses[0]),

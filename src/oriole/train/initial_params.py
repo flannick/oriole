@@ -4,9 +4,15 @@ from ..data import GwasData
 from ..error import new_error
 from ..math.stats import Stats
 from ..params import Params
+from ..options.config import EndophenotypeConfig
 
 
-def estimate_initial_params(data: GwasData, match_rust: bool = False) -> Params:
+def estimate_initial_params(
+    data: GwasData,
+    endophenotypes: list[EndophenotypeConfig],
+    mask,
+    match_rust: bool = False,
+) -> Params:
     meta = data.meta
     n_data_points = meta.n_data_points()
     n_traits = meta.n_traits()
@@ -56,5 +62,24 @@ def estimate_initial_params(data: GwasData, match_rust: bool = False) -> Params:
         raise new_error("Need at least one trait.")
     tau = 1.0 / (precision_mean**0.5)
 
-    betas = [mean / (mu + tau * (1 if mu >= 0 else -1)) for mean in beta_means]
-    return Params(trait_names=meta.trait_names, mu=mu, tau=tau, betas=betas, sigmas=sigmas)
+    n_endos = len(endophenotypes)
+    endo_names = [item.name for item in endophenotypes]
+    mus = [mu for _ in range(n_endos)]
+    taus = [tau for _ in range(n_endos)]
+    betas = [[0.0 for _ in range(n_endos)] for _ in range(n_traits)]
+    scale = mu + tau * (1 if mu >= 0 else -1)
+    for i_trait, mean in enumerate(beta_means):
+        active = [i for i, allowed in enumerate(mask[i_trait]) if allowed]
+        if not active:
+            continue
+        share = mean / (scale * len(active))
+        for i_endo in active:
+            betas[i_trait][i_endo] = share
+    return Params(
+        trait_names=meta.trait_names,
+        endo_names=endo_names,
+        mus=mus,
+        taus=taus,
+        betas=betas,
+        sigmas=sigmas,
+    )

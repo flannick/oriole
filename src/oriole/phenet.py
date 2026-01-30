@@ -7,7 +7,15 @@ from typing import Dict
 from .data.gwas import GwasCols
 from .error import new_error, for_file
 from .options.cli import ImportPhenetOptions
-from .options.config import ClassifyConfig, Config, FilesConfig, GwasConfig, TrainConfig, dump_config
+from .options.config import (
+    ClassifyConfig,
+    Config,
+    EndophenotypeConfig,
+    FilesConfig,
+    GwasConfig,
+    TrainConfig,
+    dump_config,
+)
 from .params import Params, ParamsOverride, write_params_to_file
 
 
@@ -147,7 +155,15 @@ class ConfigBuilder:
             trace_ids=None,
             t_pinned=None,
         )
-        return Config(files=files, gwas=gwas, train=train, classify=classify)
+        endo_name = self.endo_name or "E"
+        endophenotypes = [EndophenotypeConfig(name=endo_name, traits=["*"])]
+        return Config(
+            files=files,
+            gwas=gwas,
+            endophenotypes=endophenotypes,
+            train=train,
+            classify=classify,
+        )
 
     def got_some_params(self) -> bool:
         return bool(self.betas or self.vars or self.means)
@@ -163,7 +179,14 @@ class ConfigBuilder:
         for trait_name in trait_names:
             betas.append(num_or_error(self.betas, trait_name, keys.BETA))
             sigmas.append(num_or_error(self.vars, trait_name, keys.VAR) ** 0.5)
-        return Params(trait_names=trait_names, mu=mu, tau=tau, betas=betas, sigmas=sigmas)
+        return Params(
+            trait_names=trait_names,
+            endo_names=[self.endo_name],
+            mus=[mu],
+            taus=[tau],
+            betas=[[beta] for beta in betas],
+            sigmas=sigmas,
+        )
 
 
 def num_or_error(nums: Dict[str, float], name: str, kind: str) -> float:
@@ -222,4 +245,3 @@ def read_opts_file(opts_file: str) -> PhenetOpts:
     if not config_files:
         raise new_error(f"Missing option {keys.CONFIG_FILE}")
     return PhenetOpts(var_id_file=var_id_file, config_files=config_files, output_file=output_file)
-

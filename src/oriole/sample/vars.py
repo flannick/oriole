@@ -19,13 +19,16 @@ class Vars:
         n_data_points = self.meta.n_data_points()
         n_traits = self.meta.n_traits()
         for i_data_point in range(n_data_points):
-            yield ("e", i_data_point, None)
+            for i_endo in range(self.es.shape[1]):
+                yield ("e", i_data_point, i_endo)
             for i_trait in range(n_traits):
                 yield ("t", i_data_point, i_trait)
 
     @staticmethod
     def initial_vars(data: GwasData, params: Params) -> "Vars":
-        es = np.full(data.n_data_points(), params.mu, dtype=float)
+        n_data_points = data.n_data_points()
+        mus = np.asarray(params.mus, dtype=float)
         betas = np.asarray(params.betas, dtype=float)
-        ts = es[:, None] * betas[None, :]
+        es = np.tile(mus[None, :], (n_data_points, 1))
+        ts = es @ betas.T
         return Vars(meta=data.meta, es=es, ts=ts)

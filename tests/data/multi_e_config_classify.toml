@@ -1,0 +1,43 @@
+[files]
+params = "multi_e_params.json"
+
+[[gwas]]
+name = "trait1"
+file = "multi_e_trait1.tsv"
+
+[gwas.cols]
+id = "VAR_ID"
+effect = "BETA"
+se = "SE"
+
+[[gwas]]
+name = "trait2"
+file = "multi_e_trait2.tsv"
+
+[gwas.cols]
+id = "VAR_ID"
+effect = "BETA"
+se = "SE"
+
+[[endophenotypes]]
+name = "E1"
+traits = ["trait1"]
+
+[[endophenotypes]]
+name = "E2"
+traits = ["trait2"]
+
+[train]
+ids_file = "multi_e_ids.txt"
+n_steps_burn_in = 2
+n_samples_per_iteration = 2
+n_iterations_per_round = 1
+n_rounds = 1
+normalize_mu_to_one = false
+
+[classify]
+params_override = {}
+n_steps_burn_in = 2
+n_samples = 5
+out_file = "multi_e_classify_out.tsv"
+trace_ids = []

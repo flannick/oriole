@@ -11,45 +11,51 @@ from ..error import new_error, MocasaError, ErrorKind, for_file
 class ParamIndex:
     kind: str
     i_trait: int | None = None
+    i_endo: int | None = None
 
     @staticmethod
-    def all(n_traits: int) -> Iterator["ParamIndex"]:
-        yield ParamIndex("mu")
-        yield ParamIndex("tau")
+    def all(n_traits: int, n_endos: int) -> Iterator["ParamIndex"]:
+        for i_endo in range(n_endos):
+            yield ParamIndex("mu", i_endo=i_endo)
+        for i_endo in range(n_endos):
+            yield ParamIndex("tau", i_endo=i_endo)
         for i_trait in range(n_traits):
-            yield ParamIndex("beta", i_trait)
+            for i_endo in range(n_endos):
+                yield ParamIndex("beta", i_trait=i_trait, i_endo=i_endo)
         for i_trait in range(n_traits):
             yield ParamIndex("sigma", i_trait)
 
     @staticmethod
-    def n_params(n_traits: int) -> int:
-        return 2 * n_traits + 2
+    def n_params(n_traits: int, n_endos: int) -> int:
+        return (2 * n_endos) + (n_traits * n_endos) + n_traits
 
-    def get_ordinal(self, n_traits: int) -> int:
+    def get_ordinal(self, n_traits: int, n_endos: int) -> int:
         if self.kind == "mu":
-            return 0
+            return int(self.i_endo)
         if self.kind == "tau":
-            return 1
+            return n_endos + int(self.i_endo)
         if self.kind == "beta":
-            return 2 + int(self.i_trait)
+            return (2 * n_endos) + (int(self.i_trait) * n_endos) + int(self.i_endo)
         if self.kind == "sigma":
-            return 2 + n_traits + int(self.i_trait)
+            return (2 * n_endos) + (n_traits * n_endos) + int(self.i_trait)
         raise new_error(f"Unknown param index {self.kind}")
 
-    def with_trait_name(self, trait_names: list[str]) -> str:
+    def with_trait_name(self, trait_names: list[str], endo_names: list[str]) -> str:
         if self.kind == "mu":
-            return "mu"
+            return f"mu_{endo_names[int(self.i_endo)]}"
         if self.kind == "tau":
-            return "tau"
+            return f"tau_{endo_names[int(self.i_endo)]}"
         if self.kind == "beta":
-            return f"beta_{trait_names[int(self.i_trait)]}"
+            return f"beta_{trait_names[int(self.i_trait)]}_{endo_names[int(self.i_endo)]}"
         if self.kind == "sigma":
             return f"sigma_{trait_names[int(self.i_trait)]}"
         raise new_error(f"Unknown param index {self.kind}")
 
     def __str__(self) -> str:
         if self.kind in ("mu", "tau"):
-            return self.kind
+            return f"{self.kind}_{self.i_endo}"
+        if self.kind == "beta":
+            return f"{self.kind}_{self.i_trait}_{self.i_endo}"
         return f"{self.kind}_{self.i_trait}"
 
 
@@ -57,77 +63,151 @@ class ParamIndex:
 class ParamsOverride:
     mu: float | None = None
     tau: float | None = None
+    mus: list[float] | None = None
+    taus: list[float] | None = None
+    mus_by_name: dict[str, float] | None = None
+    taus_by_name: dict[str, float] | None = None
 
 
 @dataclass
 class Params:
     trait_names: list[str]
-    mu: float
-    tau: float
-    betas: list[float]
+    endo_names: list[str]
+    mus: list[float]
+    taus: list[float]
+    betas: list[list[float]]
     sigmas: list[float]
 
     @classmethod
-    def from_vec(cls, values: list[float], trait_names: list[str]) -> "Params":
+    def from_vec(
+        cls, values: list[float], trait_names: list[str], endo_names: list[str]
+    ) -> "Params":
         n_traits = len(trait_names)
-        n_values_needed = ParamIndex.n_params(n_traits)
+        n_endos = len(endo_names)
+        n_values_needed = ParamIndex.n_params(n_traits, n_endos)
         if len(values) != n_values_needed:
             raise new_error(
-                f"Need {n_values_needed} values for {n_traits} traits, but got {len(values)}."
+                "Need {} values for {} traits and {} endos, but got {}.".format(
+                    n_values_needed, n_traits, n_endos, len(values)
+                )
             )
-        mu = values[0]
-        tau = values[1]
-        betas = values[2 : 2 + n_traits]
-        sigmas = values[2 + n_traits : 2 + 2 * n_traits]
-        return cls(trait_names=trait_names, mu=mu, tau=tau, betas=betas, sigmas=sigmas)
+        cursor = 0
+        mus = values[cursor : cursor + n_endos]
+        cursor += n_endos
+        taus = values[cursor : cursor + n_endos]
+        cursor += n_endos
+        betas_flat = values[cursor : cursor + (n_traits * n_endos)]
+        cursor += n_traits * n_endos
+        sigmas = values[cursor : cursor + n_traits]
+        betas = [
+            betas_flat[i_trait * n_endos : (i_trait + 1) * n_endos]
+            for i_trait in range(n_traits)
+        ]
+        return cls(
+            trait_names=trait_names,
+            endo_names=endo_names,
+            mus=mus,
+            taus=taus,
+            betas=betas,
+            sigmas=sigmas,
+        )
 
     def n_traits(self) -> int:
         return len(self.trait_names)
 
+    def n_endos(self) -> int:
+        return len(self.endo_names)
+
     def reduce_to(self, trait_names: list[str], is_cols: list[int]) -> "Params":
         betas = [self.betas[i_col] for i_col in is_cols]
         sigmas = [self.sigmas[i_col] for i_col in is_cols]
-        return Params(trait_names=trait_names, mu=self.mu, tau=self.tau, betas=betas, sigmas=sigmas)
+        return Params(
+            trait_names=trait_names,
+            endo_names=self.endo_names,
+            mus=self.mus,
+            taus=self.taus,
+            betas=betas,
+            sigmas=sigmas,
+        )
 
     def plus_overwrite(self, overwrite: ParamsOverride) -> "Params":
-        mu = overwrite.mu if overwrite.mu is not None else self.mu
-        tau = overwrite.tau if overwrite.tau is not None else self.tau
+        mus = list(self.mus)
+        taus = list(self.taus)
+        if overwrite.mu is not None:
+            if self.n_endos() != 1:
+                raise new_error("mu override only supported for a single endophenotype.")
+            mus[0] = overwrite.mu
+        if overwrite.tau is not None:
+            if self.n_endos() != 1:
+                raise new_error("tau override only supported for a single endophenotype.")
+            taus[0] = overwrite.tau
+        if overwrite.mus is not None:
+            if len(overwrite.mus) != self.n_endos():
+                raise new_error("mus override length does not match endophenotypes.")
+            mus = list(overwrite.mus)
+        if overwrite.taus is not None:
+            if len(overwrite.taus) != self.n_endos():
+                raise new_error("taus override length does not match endophenotypes.")
+            taus = list(overwrite.taus)
+        if overwrite.mus_by_name:
+            for name, value in overwrite.mus_by_name.items():
+                if name not in self.endo_names:
+                    raise new_error(f"Unknown endophenotype name in mus override: {name}")
+                mus[self.endo_names.index(name)] = value
+        if overwrite.taus_by_name:
+            for name, value in overwrite.taus_by_name.items():
+                if name not in self.endo_names:
+                    raise new_error(f"Unknown endophenotype name in taus override: {name}")
+                taus[self.endo_names.index(name)] = value
         return Params(
             trait_names=self.trait_names,
-            mu=mu,
-            tau=tau,
+            endo_names=self.endo_names,
+            mus=mus,
+            taus=taus,
             betas=self.betas,
             sigmas=self.sigmas,
         )
 
     def normalized_with_mu_one(self) -> "Params":
-        mu = 1.0
-        tau = self.tau / self.mu
-        betas = [beta * self.mu for beta in self.betas]
+        mus = []
+        taus = list(self.taus)
+        betas = [list(row) for row in self.betas]
+        for i_endo, mu in enumerate(self.mus):
+            if mu == 0.0:
+                raise new_error("Cannot normalize with mu=0.")
+            mus.append(1.0)
+            taus[i_endo] = taus[i_endo] / mu
+            for i_trait in range(len(betas)):
+                betas[i_trait][i_endo] = betas[i_trait][i_endo] * mu
         return Params(
             trait_names=self.trait_names,
-            mu=mu,
-            tau=tau,
+            endo_names=self.endo_names,
+            mus=mus,
+            taus=taus,
             betas=betas,
             sigmas=self.sigmas,
         )
 
     def __getitem__(self, index: ParamIndex) -> float:
         if index.kind == "mu":
-            return self.mu
+            return self.mus[int(index.i_endo)]
         if index.kind == "tau":
-            return self.tau
+            return self.taus[int(index.i_endo)]
         if index.kind == "beta":
-            return self.betas[int(index.i_trait)]
+            return self.betas[int(index.i_trait)][int(index.i_endo)]
         if index.kind == "sigma":
             return self.sigmas[int(index.i_trait)]
         raise new_error(f"Unknown param index {index.kind}")
 
     def __str__(self) -> str:
-        lines = [f"mu = {self.mu}"]
-        for name, beta, sigma in zip(self.trait_names, self.betas, self.sigmas):
-            lines.append(f"beta_{name} = {beta}")
-            lines.append(f"sigma_{name} = {sigma}")
+        lines = []
+        for name, mu, tau in zip(self.endo_names, self.mus, self.taus):
+            lines.append(f"mu_{name} = {mu}")
+            lines.append(f"tau_{name} = {tau}")
+        for i_trait, name in enumerate(self.trait_names):
+            for i_endo, endo in enumerate(self.endo_names):
+                lines.append(f"beta_{name}_{endo} = {self.betas[i_trait][i_endo]}")
+            lines.append(f"sigma_{name} = {self.sigmas[i_trait]}")
         return "\n".join(lines)
 
 
@@ -138,11 +218,22 @@ def read_params_from_file(path: str) -> Params:
     except Exception as exc:
         raise for_file(path, exc) from exc
 
+    if "endo_names" in data:
+        return Params(
+            trait_names=data["trait_names"],
+            endo_names=data["endo_names"],
+            mus=data["mus"],
+            taus=data["taus"],
+            betas=data["betas"],
+            sigmas=data["sigmas"],
+        )
+    betas = [[beta] for beta in data["betas"]]
     return Params(
         trait_names=data["trait_names"],
-        mu=data["mu"],
-        tau=data["tau"],
-        betas=data["betas"],
+        endo_names=["E"],
+        mus=[data["mu"]],
+        taus=[data["tau"]],
+        betas=betas,
         sigmas=data["sigmas"],
     )
 
@@ -150,8 +241,9 @@ def read_params_from_file(path: str) -> Params:
 def write_params_to_file(params: Params, output_file: str) -> None:
     data = {
         "trait_names": params.trait_names,
-        "mu": params.mu,
-        "tau": params.tau,
+        "endo_names": params.endo_names,
+        "mus": params.mus,
+        "taus": params.taus,
         "betas": params.betas,
         "sigmas": params.sigmas,
     }

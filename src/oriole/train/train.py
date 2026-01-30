@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import numpy as np
 
 from ..data import load_data
 from ..error import new_error
 from ..options.action import Action
-from ..options.config import Config
+from ..options.config import Config, endophenotype_mask
 from ..params import Params, write_params_to_file
 from ..report import Reporter
 from ..sample.trace_file import ParamTraceFileWriter
@@ -64,13 +65,18 @@ def train(
     n_traits = data.gwas_data.meta.n_traits()
     params_trace_writer = None
     if config.files.trace:
-        params_trace_writer = ParamTraceFileWriter(Path(config.files.trace), n_traits)
+        params_trace_writer = ParamTraceFileWriter(
+            Path(config.files.trace), n_traits, len(config.endophenotypes)
+        )
 
     n_threads = max(os.cpu_count() or 1, 3)
     print(
         f"Launching {n_threads} workers and burning in with {config.train.n_steps_burn_in} iterations"
     )
-    params = estimate_initial_params(data.gwas_data, match_rust=match_rust)
+    mask = np.asarray(endophenotype_mask(config), dtype=bool)
+    params = estimate_initial_params(
+        data.gwas_data, config.endophenotypes, mask, match_rust=match_rust
+    )
     print(params)
 
     if analytical:
@@ -79,7 +85,7 @@ def train(
         total_iters = max(1, config.train.n_iterations_per_round * max(1, config.train.n_rounds))
         reporter = Reporter()
         for i_iteration in range(total_iters):
-            params = estimate_params_analytical(data, params, chunk_size)
+            params = estimate_params_analytical(data, params, chunk_size, mask)
             if params_trace_writer is not None:
                 params_trace_writer.write(params)
             if (i_iteration + 1) % max(1, config.train.n_iterations_per_round) == 0:
@@ -94,7 +100,7 @@ def train(
         write_params_to_file(params, config.files.params)
         return
 
-    launcher = TrainWorkerLauncher(data, params, config.train)
+    launcher = TrainWorkerLauncher(data, params, config.train, mask)
     threads = Threads.new(launcher, n_threads)
     print("Workers launched and burned in.")
 
@@ -106,7 +112,7 @@ def train(
         params0 = create_param_estimates(threads, n_samples)
         params1 = create_param_estimates(threads, n_samples)
         param_meta_stats = ParamMetaStats(
-            n_threads, params.trait_names, params0, params1
+            n_threads, params.trait_names, params.endo_names, params0, params1
         )
         reached_precision = False
         while True:

@@ -50,9 +50,16 @@ class ClassifyConfig:
 
 
 @dataclass
+class EndophenotypeConfig:
+    name: str
+    traits: list[str]
+
+
+@dataclass
 class Config:
     files: FilesConfig
     gwas: list[GwasConfig]
+    endophenotypes: list[EndophenotypeConfig]
     train: TrainConfig
     classify: ClassifyConfig
 
@@ -66,7 +73,23 @@ def _gwas_cols_from_dict(value: dict | None) -> Optional[GwasCols]:
 def _params_override_from_dict(value: dict | None) -> Optional[ParamsOverride]:
     if value is None:
         return None
-    return ParamsOverride(mu=value.get("mu"), tau=value.get("tau"))
+    return ParamsOverride(
+        mu=value.get("mu"),
+        tau=value.get("tau"),
+        mus=value.get("mus"),
+        taus=value.get("taus"),
+        mus_by_name=value.get("mus_by_name"),
+        taus_by_name=value.get("taus_by_name"),
+    )
+
+
+def _endophenotypes_from_dicts(value: list[dict] | None) -> list[EndophenotypeConfig]:
+    if not value:
+        return [EndophenotypeConfig(name="E", traits=["*"])]
+    return [
+        EndophenotypeConfig(name=item["name"], traits=list(item["traits"]))
+        for item in value
+    ]
 
 
 def load_config(path: str) -> Config:
@@ -85,13 +108,20 @@ def load_config(path: str) -> Config:
         )
         for item in data["gwas"]
     ]
+    endophenotypes = _endophenotypes_from_dicts(data.get("endophenotypes"))
     train = TrainConfig(**data["train"])
     classify_data = data["classify"].copy()
     classify_data["params_override"] = _params_override_from_dict(
         classify_data.get("params_override")
     )
     classify = ClassifyConfig(**classify_data)
-    return Config(files=files, gwas=gwas, train=train, classify=classify)
+    return Config(
+        files=files,
+        gwas=gwas,
+        endophenotypes=endophenotypes,
+        train=train,
+        classify=classify,
+    )
 
 
 def dump_config(config: Config) -> str:
@@ -120,6 +150,9 @@ def dump_config(config: Config) -> str:
     data = {
         "files": {"trace": config.files.trace, "params": config.files.params},
         "gwas": [gwas_to_dict(item) for item in config.gwas],
+        "endophenotypes": [
+            {"name": item.name, "traits": item.traits} for item in config.endophenotypes
+        ],
         "train": {
             "ids_file": config.train.ids_file,
             "n_steps_burn_in": config.train.n_steps_burn_in,
@@ -136,3 +169,21 @@ def dump_config(config: Config) -> str:
         return tomli_w.dumps(data)
     except Exception as exc:
         raise MocasaError(ErrorKind.TOML_SER, str(exc)) from exc
+
+
+def endophenotype_names(config: Config) -> list[str]:
+    return [item.name for item in config.endophenotypes]
+
+
+def endophenotype_mask(config: Config) -> list[list[bool]]:
+    trait_names = [item.name for item in config.gwas]
+    mask: list[list[bool]] = []
+    for trait in trait_names:
+        trait_mask: list[bool] = []
+        for endo in config.endophenotypes:
+            if "*" in endo.traits:
+                trait_mask.append(True)
+            else:
+                trait_mask.append(trait in endo.traits)
+        mask.append(trait_mask)
+    return mask
