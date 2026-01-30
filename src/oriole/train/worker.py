@@ -60,16 +60,18 @@ def train_worker(
     sampler = Sampler(meta, rng)
     t_pinned = bool(config.t_pinned) if config.t_pinned is not None else False
     sampler.sample_n(data.gwas_data, params, vars, config.n_steps_burn_in, None, t_pinned)
+    sampler.reset_stats()
 
     while True:
         message: MessageToWorker = out_queue.get()
         if message.kind == "take_n_samples":
+            sampler.reset_stats()
             sampler.sample_n(data.gwas_data, params, vars, int(message.payload), None, t_pinned)
             params_new = sampler.var_stats.compute_new_params(data.weights)
             in_queue.put(MessageToCentral(i_thread, params_new))
         elif message.kind == "set_new_params":
             params = message.payload
             sampler.sample_n(data.gwas_data, params, vars, config.n_steps_burn_in, None, t_pinned)
+            sampler.reset_stats()
         elif message.kind == "shutdown":
             break
-

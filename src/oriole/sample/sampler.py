@@ -56,3 +56,5 @@ class Sampler:
     def var_stats(self) -> VarStats:
         return self._var_stats
 
+    def reset_stats(self) -> None:
+        self._var_stats.reset()

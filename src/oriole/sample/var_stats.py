@@ -19,14 +19,22 @@ class SampledClassification:
 class VarStats:
     def __init__(self, meta: Meta) -> None:
         self.meta = meta
-        self.n = 0
         n_data_points = meta.n_data_points()
         n_traits = meta.n_traits()
+        self.n = 0
         self.e_sums = np.zeros(n_data_points, dtype=float)
         self.e2_sums = np.zeros(n_data_points, dtype=float)
         self.e_t_sums = np.zeros((n_data_points, n_traits), dtype=float)
         self.t_sums = np.zeros((n_data_points, n_traits), dtype=float)
         self.t2_sums = np.zeros((n_data_points, n_traits), dtype=float)
+
+    def reset(self) -> None:
+        self.n = 0
+        self.e_sums.fill(0.0)
+        self.e2_sums.fill(0.0)
+        self.e_t_sums.fill(0.0)
+        self.t_sums.fill(0.0)
+        self.t2_sums.fill(0.0)
 
     def add(self, vars: Vars) -> None:
         self.n += 1
@@ -60,6 +68,7 @@ class VarStats:
         betas_vec = betas_arr[None, :]
         sigma_terms = mean_t2 - 2.0 * mean_e_t * betas_vec + mean_e2[:, None] * betas_vec**2
         sigma2 = (weights_arr[:, None] * sigma_terms).sum(axis=0) / weights_sum
+        sigma2 = np.maximum(sigma2, 0.0)
         sigmas = [float(value) for value in np.sqrt(sigma2)]
 
         return Params(

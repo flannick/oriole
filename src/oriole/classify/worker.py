@@ -120,6 +120,7 @@ def classify_worker(
                     e_tracer,
                     t_pinned,
                 )
+                sampler.reset_stats()
                 sampler.sample_n(
                     data_point,
                     params_reduced,
