@@ -1,6 +1,6 @@
-# oriole (Python)
+# ORIOLE
 
-Oriole is a Python rewrite of the original Rust tool (`mocasa`). It fits a linear-Gaussian latent variable model with a single endophenotype (E) driving multiple traits (T), which in turn generate observed effects (O). The tool supports Gibbs sampling and closed-form (analytical) inference for classification, and analytical EM for training.
+ORIOLE is a Python rewrite of the original Rust tool (`mocasa`). It fits a linear-Gaussian latent variable model with a single endophenotype (E) driving multiple traits (T), which in turn generate observed effects (O). The tool supports Gibbs sampling and closed-form (analytical) inference for classification, and analytical EM for training.
 
 ## Quick Start
 
