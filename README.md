@@ -1,6 +1,8 @@
 # ORIOLE
 
-ORIOLE is a Python rewrite of the original Rust tool (`mocasa`). It fits a linear-Gaussian latent variable model with one or more endophenotypes (E) driving multiple traits (T), which in turn generate observed effects (O). The tool supports Gibbs sampling and closed-form (analytical) inference for classification, and analytical EM for training.
+ORIOLE is a linear-Gaussian model for joint inference of latent endophenotypes and
+trait effects from GWAS summary statistics. It supports analytical inference and
+Gibbs sampling, multiple endophenotypes, and directed edges between traits (a DAG).
 
 ## Quick Start
 
@@ -11,17 +13,17 @@ ORIOLE is a Python rewrite of the original Rust tool (`mocasa`). It fits a linea
 python -m pip install -e .
 ```
 
-Dependencies are minimal: `numpy`, `tomli`, `tomli-w`. Tests use `pytest`.
+Dependencies: `numpy`, `tomli`, `tomli-w`. Tests use `pytest`.
 
 ### 2) Create a config
 
-Copy the sample config and edit paths:
+Copy a sample config and edit paths:
 
-```
+```bash
 cp tests/data/sample_config_train.toml ./config.toml
 ```
 
-Update the file paths to point at your GWAS files and variant ID list.
+Update the GWAS file paths and the variant ID list.
 
 ### 3) Train
 
@@ -41,21 +43,27 @@ oriole classify -f config.toml
 
 For each variant *j* and trait *i* (with K endophenotypes):
 
-- Endophenotype effect:  
+- Endophenotype effects:
   `E^j ~ Normal(mu, diag(tau^2))`
 
-- True trait effects:  
-  `T_i^j | E^j ~ Normal(B_i · E^j, sigma_i^2)`
+- Trait effects:
+  `T^j | E^j ~ Normal(B E^j, Sigma)`
 
-- Observed effects:  
-  `O_i^j | T_i^j ~ Normal(T_i^j, s_i^j^2)`
+- Observed GWAS effects:
+  `O^j | T^j ~ Normal(T^j, S_j)`
 
-The observed standard errors `s_i^j` come from the GWAS files. The parameters to fit are:
+With trait-to-trait edges, the trait layer becomes:
+
+- `T^j = A T^j + B E^j + eps^j`, where `eps^j ~ Normal(0, D)` and `A` is a DAG.
+
+The observed standard errors come from the GWAS files. The parameters to fit are:
 
 - `mu_k`, `tau_k` for each endophenotype
-- `beta_{i,k}` and `sigma_i` for each trait (betas are masked by config)
+- `beta_{i,k}` and `sigma_i` for each trait
+- `A_{i,p}` for allowed trait-to-trait edges
 
-The model is linear-Gaussian, so the posterior for `E^j | O^j` is Gaussian and closed-form expectations are available for EM and analytical classification.
+The model is linear-Gaussian, so analytical posterior moments are available and used
+by analytical EM training and analytical classification.
 
 ---
 
@@ -75,7 +83,7 @@ Tests:
 
 ---
 
-## Running Oriole
+## Running ORIOLE
 
 ### Training
 
@@ -83,9 +91,7 @@ Tests:
 oriole train -f config.toml
 ```
 
-Analytical EM is the default.
-
-Gibbs sampling (slower, stochastic):
+Analytical EM is the default. For Gibbs sampling:
 
 ```bash
 oriole train -f config.toml --gibbs
@@ -97,9 +103,7 @@ oriole train -f config.toml --gibbs
 oriole classify -f config.toml
 ```
 
-Analytical inference is the default.
-
-Gibbs sampling (slower, stochastic):
+Analytical inference is the default. For Gibbs sampling:
 
 ```bash
 oriole classify -f config.toml --gibbs
@@ -109,7 +113,7 @@ oriole classify -f config.toml --gibbs
 
 ## Configuration File
 
-Oriole uses TOML. A minimal template:
+ORIOLE uses TOML. A minimal template:
 
 ```toml
 [files]
@@ -150,31 +154,38 @@ out_file = "path/to/output.tsv"
 trace_ids = []
 ```
 
-If `[[endophenotypes]]` is omitted, Oriole defaults to a single endophenotype named `E` connected to all traits.
+If `[[endophenotypes]]` is omitted, ORIOLE uses a single endophenotype named `E`
+connected to all traits.
 
 ### Params JSON format
 
-New format (multi-E):
-
 ```json
 {
-  "trait_names": ["trait1", "trait2"],
+  "trait_names": ["trait1", "trait2", "trait3"],
   "endo_names": ["E1", "E2"],
   "mus": [1.0, 0.5],
   "taus": [1.2, 0.8],
   "betas": [
     [0.2, 0.0],
-    [0.0, -0.3]
+    [0.0, -0.3],
+    [0.1, 0.2]
   ],
-  "sigmas": [0.4, 0.5]
+  "sigmas": [0.4, 0.5, 0.3],
+  "trait_edges": [
+    [0.0, 0.0, 0.0],
+    [0.1, 0.0, 0.0],
+    [0.0, -0.2, 0.0]
+  ]
 }
 ```
 
-Old single-E format is still accepted (it is interpreted as one endophenotype named `E`).
+`trait_edges[i][j]` is the coefficient for the edge `trait_j -> trait_i`. Entries must
+be zero for edges not listed in the config.
 
 ### GWAS file format
 
-The GWAS files must have a header row containing the ID, effect, and SE columns. Supported delimiters: `;`, tab, `,`, or single spaces.
+The GWAS files must have a header row containing the ID, effect, and SE columns.
+Supported delimiters: `;`, tab, `,`, or single spaces.
 
 Example header:
 
@@ -196,16 +207,16 @@ If no weight is provided, it defaults to 1.0.
 
 ## Flags
 
-- `--gibbs`  
+- `--gibbs`
   Use Gibbs sampling instead of analytical inference. Supported for classify and train.
 
-- `--match-rust`  
-  Preserves Rust’s initial parameter estimation behavior (uses betas to estimate SE statistics).
+- `--match-rust`
+  Preserves a legacy initialization behavior (uses betas to estimate SE statistics).
 
-- `--chunk-size <N>`  
+- `--chunk-size <N>`
   Number of variants to process per chunk. Default targets ~2GB RAM. Use `1` to disable vectorization.
 
-- `-d, --dry`  
+- `-d, --dry`
   Dry run (load data, check config, but do not train/classify).
 
 ---
@@ -240,8 +251,6 @@ From `src/oriole`:
 pytest -q
 ```
 
-The test suite trains and classifies analytically (the default) using the bundled 1000-variant dataset.
-
 ---
 
 ## Full Usage Reference
@@ -262,9 +271,10 @@ oriole classify -f config.toml [--gibbs] [--chunk-size N]
 
 ## More Complex Models
 
-For multiple endophenotypes, add `[[endophenotypes]]` blocks to your config and assign each endo to a subset of traits. Traits listed under an endo will have free betas; missing traits are masked (their betas are fixed to 0).
+### Multiple endophenotypes
 
-Example:
+Add `[[endophenotypes]]` blocks to your config and assign each endo to a subset of
+traits. Traits listed under an endo have free betas; missing traits are masked.
 
 ```toml
 [[endophenotypes]]
@@ -275,8 +285,6 @@ traits = ["fi", "isiadj", "bmi"]  # subset of gwas names, or ["*"] for all trait
 name = "E2"
 traits = ["bmi", "whradj", "bfp"]
 ```
-
-If `[[endophenotypes]]` is omitted, Oriole defaults to a single endophenotype named `E` connected to all traits. Parameters are stored using the new multi-E JSON format (`endo_names`, `mus`, `taus`, `betas` matrix), but the old single-E format is still accepted.
 
 ### Trait-to-trait DAG edges
 
@@ -293,10 +301,7 @@ parent = "trait2"
 child = "trait3"
 ```
 
-The corresponding coefficients live in the `trait_edges` matrix in the params JSON,
-where `trait_edges[i][j]` is the coefficient for `trait_j -> trait_i`. Entries must
-be zero for edges that are not listed in the config.
-
+The corresponding coefficients live in the `trait_edges` matrix in the params JSON.
 When `[[trait_edges]]` are present, training estimates the coefficients for the
 allowed edges alongside the endophenotype loadings. Edges not listed in the config
 remain fixed at 0.
