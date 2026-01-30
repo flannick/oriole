@@ -159,6 +159,20 @@ connected to all traits.
 
 ### Params JSON format
 
+You can use a minimal format for the common case (one endophenotype, no trait edges):
+
+```json
+{
+  "trait_names": ["trait1", "trait2"],
+  "mu": 1.0,
+  "tau": 0.8,
+  "betas": [0.2, -0.3],
+  "sigmas": [0.4, 0.5]
+}
+```
+
+For multiple endophenotypes and/or trait-to-trait edges, use the full format:
+
 ```json
 {
   "trait_names": ["trait1", "trait2", "trait3"],
@@ -179,8 +193,8 @@ connected to all traits.
 }
 ```
 
-`trait_edges[i][j]` is the coefficient for the edge `trait_j -> trait_i`. Entries must
-be zero for edges not listed in the config.
+`trait_edges[i][j]` is the coefficient for the edge `trait_j -> trait_i`. If omitted,
+ORIOLE treats all trait-to-trait edges as zero.
 
 ### GWAS file format
 
