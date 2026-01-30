@@ -14,5 +14,6 @@ def scale_sigmas(config: ScaleSigmasOptions) -> None:
         taus=params.taus,
         betas=params.betas,
         sigmas=sigmas,
+        trait_edges=params.trait_edges,
     )
     write_params_to_file(scaled, config.out_file)

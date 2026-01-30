@@ -161,6 +161,7 @@ class ConfigBuilder:
             files=files,
             gwas=gwas,
             endophenotypes=endophenotypes,
+            trait_edges=[],
             train=train,
             classify=classify,
         )
@@ -186,6 +187,10 @@ class ConfigBuilder:
             taus=[tau],
             betas=[[beta] for beta in betas],
             sigmas=sigmas,
+            trait_edges=[
+                [0.0 for _ in range(len(trait_names))]
+                for _ in range(len(trait_names))
+            ],
         )
 
 

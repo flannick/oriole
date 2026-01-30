@@ -29,6 +29,11 @@ class Vars:
         n_data_points = data.n_data_points()
         mus = np.asarray(params.mus, dtype=float)
         betas = np.asarray(params.betas, dtype=float)
+        trait_edges = np.asarray(params.trait_edges, dtype=float)
         es = np.tile(mus[None, :], (n_data_points, 1))
-        ts = es @ betas.T
+        n_traits = data.n_traits()
+        identity = np.eye(n_traits, dtype=float)
+        l_mat = identity - trait_edges
+        m_mat = np.linalg.solve(l_mat, betas)
+        ts = es @ m_mat.T
         return Vars(meta=data.meta, es=es, ts=ts)

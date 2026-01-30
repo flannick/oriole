@@ -56,10 +56,17 @@ class EndophenotypeConfig:
 
 
 @dataclass
+class TraitEdgeConfig:
+    parent: str
+    child: str
+
+
+@dataclass
 class Config:
     files: FilesConfig
     gwas: list[GwasConfig]
     endophenotypes: list[EndophenotypeConfig]
+    trait_edges: list[TraitEdgeConfig]
     train: TrainConfig
     classify: ClassifyConfig
 
@@ -109,6 +116,10 @@ def load_config(path: str) -> Config:
         for item in data["gwas"]
     ]
     endophenotypes = _endophenotypes_from_dicts(data.get("endophenotypes"))
+    trait_edges = [
+        TraitEdgeConfig(parent=item["parent"], child=item["child"])
+        for item in data.get("trait_edges", [])
+    ]
     train = TrainConfig(**data["train"])
     classify_data = data["classify"].copy()
     classify_data["params_override"] = _params_override_from_dict(
@@ -119,6 +130,7 @@ def load_config(path: str) -> Config:
         files=files,
         gwas=gwas,
         endophenotypes=endophenotypes,
+        trait_edges=trait_edges,
         train=train,
         classify=classify,
     )
@@ -152,6 +164,9 @@ def dump_config(config: Config) -> str:
         "gwas": [gwas_to_dict(item) for item in config.gwas],
         "endophenotypes": [
             {"name": item.name, "traits": item.traits} for item in config.endophenotypes
+        ],
+        "trait_edges": [
+            {"parent": item.parent, "child": item.child} for item in config.trait_edges
         ],
         "train": {
             "ids_file": config.train.ids_file,

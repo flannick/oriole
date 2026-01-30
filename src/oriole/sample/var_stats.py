@@ -98,6 +98,7 @@ class VarStats:
             taus=[float(value) for value in taus],
             betas=betas.tolist(),
             sigmas=[float(value) for value in sigmas],
+            trait_edges=[[0.0 for _ in range(meta.n_traits())] for _ in range(meta.n_traits())],
         )
 
     def calculate_classification(self) -> SampledClassification:

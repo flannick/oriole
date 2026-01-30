@@ -20,11 +20,14 @@ def gibbs_classification_chunk(
     sigma2 = sigma ** 2
     tau2 = np.asarray(params.taus, dtype=float) ** 2
     mu = np.asarray(params.mus, dtype=float)
+    trait_edges = np.asarray(params.trait_edges, dtype=float)
     n_vars, n_traits = betas_obs.shape
     n_endos = params.n_endos()
+    l_mat = np.eye(n_traits, dtype=float) - trait_edges
 
     e = np.tile(mu[None, :], (n_vars, 1))
-    t = e @ beta.T
+    m_mat = np.linalg.solve(l_mat, beta)
+    t = e @ m_mat.T
 
     sigma2_inv = 1.0 / sigma2
     tau2_inv = 1.0 / tau2
@@ -33,11 +36,10 @@ def gibbs_classification_chunk(
     chol_c = np.linalg.cholesky(c)
 
     se2 = ses ** 2
-    var_t = 1.0 / (1.0 / sigma2[None, :] + 1.0 / se2)
-    std_t = np.sqrt(var_t)
 
     def update_e():
-        rhs = (t / sigma2[None, :]) @ beta + (mu * tau2_inv)[None, :]
+        y = t @ l_mat.T
+        rhs = (y / sigma2[None, :]) @ beta + (mu * tau2_inv)[None, :]
         mean_e = rhs @ c
         z = rng.normal(size=(n_vars, n_endos))
         return mean_e + z @ chol_c.T
@@ -45,9 +47,36 @@ def gibbs_classification_chunk(
     def update_t(e_vals):
         if t_pinned:
             return betas_obs.copy()
-        mu_e = e_vals @ beta.T
-        mean_t = var_t * ((mu_e / sigma2[None, :]) + (betas_obs / se2))
-        return rng.normal(loc=mean_t, scale=std_t)
+        t_new = t.copy()
+        for i_trait in range(n_traits):
+            mu_e = e_vals @ beta[i_trait]
+            mu_parents = t_new @ trait_edges[i_trait]
+            mean_base = mu_e + mu_parents
+            precision = (1.0 / sigma2[i_trait]) + np.where(
+                se2[:, i_trait] > 0.0, 1.0 / se2[:, i_trait], 0.0
+            )
+            num = (mean_base / sigma2[i_trait]) + np.where(
+                se2[:, i_trait] > 0.0, betas_obs[:, i_trait] / se2[:, i_trait], 0.0
+            )
+            for i_child in range(n_traits):
+                a_ci = trait_edges[i_child, i_trait]
+                if abs(a_ci) <= 1e-12:
+                    continue
+                parent_sum = t_new @ trait_edges[i_child]
+                mu_child = (e_vals @ beta[i_child]) + (
+                    parent_sum - a_ci * t_new[:, i_trait]
+                )
+                resid = t_new[:, i_child] - mu_child
+                precision += (a_ci ** 2) / sigma2[i_child]
+                num += (a_ci / sigma2[i_child]) * resid
+            variance = 1.0 / precision
+            std_dev = np.sqrt(variance)
+            mean = variance * num
+            pinned_mask = se2[:, i_trait] <= 0.0
+            t_new[:, i_trait] = rng.normal(loc=mean, scale=std_dev)
+            if np.any(pinned_mask):
+                t_new[pinned_mask, i_trait] = betas_obs[pinned_mask, i_trait]
+        return t_new
 
     for _ in range(n_burn_in):
         e = update_e()

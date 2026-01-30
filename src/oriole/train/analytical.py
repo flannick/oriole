@@ -119,4 +119,5 @@ def estimate_params_analytical(
         taus=[float(value) for value in np.sqrt(tau2)],
         betas=betas.tolist(),
         sigmas=[float(value) for value in sigmas],
+        trait_edges=params.trait_edges,
     )

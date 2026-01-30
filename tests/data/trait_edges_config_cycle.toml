@@ -1,0 +1,52 @@
+[files]
+params = "trait_edges_params.json"
+
+[[gwas]]
+name = "trait1"
+file = "trait_edges_trait1.tsv"
+
+[gwas.cols]
+id = "VAR_ID"
+effect = "BETA"
+se = "SE"
+
+[[gwas]]
+name = "trait2"
+file = "trait_edges_trait2.tsv"
+
+[gwas.cols]
+id = "VAR_ID"
+effect = "BETA"
+se = "SE"
+
+[[gwas]]
+name = "trait3"
+file = "trait_edges_trait3.tsv"
+
+[gwas.cols]
+id = "VAR_ID"
+effect = "BETA"
+se = "SE"
+
+[[trait_edges]]
+parent = "trait1"
+child = "trait2"
+
+[[trait_edges]]
+parent = "trait2"
+child = "trait1"
+
+[train]
+ids_file = "trait_edges_ids.txt"
+n_steps_burn_in = 5
+n_samples_per_iteration = 5
+n_iterations_per_round = 1
+n_rounds = 1
+normalize_mu_to_one = true
+
+[classify]
+params_override = {}
+n_steps_burn_in = 5
+n_samples = 50
+out_file = "trait_edges_classify_out.tsv"
+trace_ids = []

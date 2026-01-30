@@ -225,6 +225,10 @@ The repo includes small test data under `tests/data/`:
 - `multi_e_params.json`
 - `multi_e_config_train.toml`
 - `multi_e_config_classify.toml`
+- `trait_edges_trait1.tsv`, `trait_edges_trait2.tsv`, `trait_edges_trait3.tsv`
+- `trait_edges_ids.txt`
+- `trait_edges_params.json`
+- `trait_edges_config_classify.toml`
 
 ---
 
@@ -273,5 +277,27 @@ traits = ["bmi", "whradj", "bfp"]
 ```
 
 If `[[endophenotypes]]` is omitted, Oriole defaults to a single endophenotype named `E` connected to all traits. Parameters are stored using the new multi-E JSON format (`endo_names`, `mus`, `taus`, `betas` matrix), but the old single-E format is still accepted.
+
+### Trait-to-trait DAG edges
+
+You can also specify directed edges between traits. These edges must form a DAG.
+Add them to the config via `[[trait_edges]]` blocks:
+
+```toml
+[[trait_edges]]
+parent = "trait1"
+child = "trait2"
+
+[[trait_edges]]
+parent = "trait2"
+child = "trait3"
+```
+
+The corresponding coefficients live in the `trait_edges` matrix in the params JSON,
+where `trait_edges[i][j]` is the coefficient for `trait_j -> trait_i`. Entries must
+be zero for edges that are not listed in the config.
+
+Note: training does not estimate `trait_edges` coefficients; supply them in the params
+file when using trait DAGs.
 
 ---

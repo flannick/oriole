@@ -82,4 +82,5 @@ def estimate_initial_params(
         taus=taus,
         betas=betas,
         sigmas=sigmas,
+        trait_edges=[[0.0 for _ in range(n_traits)] for _ in range(n_traits)],
     )

@@ -77,6 +77,7 @@ class Params:
     taus: list[float]
     betas: list[list[float]]
     sigmas: list[float]
+    trait_edges: list[list[float]]
 
     @classmethod
     def from_vec(
@@ -110,6 +111,9 @@ class Params:
             taus=taus,
             betas=betas,
             sigmas=sigmas,
+            trait_edges=[
+                [0.0 for _ in range(n_traits)] for _ in range(n_traits)
+            ],
         )
 
     def n_traits(self) -> int:
@@ -121,6 +125,10 @@ class Params:
     def reduce_to(self, trait_names: list[str], is_cols: list[int]) -> "Params":
         betas = [self.betas[i_col] for i_col in is_cols]
         sigmas = [self.sigmas[i_col] for i_col in is_cols]
+        trait_edges = [
+            [self.trait_edges[i_child][i_parent] for i_parent in is_cols]
+            for i_child in is_cols
+        ]
         return Params(
             trait_names=trait_names,
             endo_names=self.endo_names,
@@ -128,6 +136,7 @@ class Params:
             taus=self.taus,
             betas=betas,
             sigmas=sigmas,
+            trait_edges=trait_edges,
         )
 
     def plus_overwrite(self, overwrite: ParamsOverride) -> "Params":
@@ -166,6 +175,7 @@ class Params:
             taus=taus,
             betas=self.betas,
             sigmas=self.sigmas,
+            trait_edges=self.trait_edges,
         )
 
     def normalized_with_mu_one(self) -> "Params":
@@ -186,6 +196,7 @@ class Params:
             taus=taus,
             betas=betas,
             sigmas=self.sigmas,
+            trait_edges=self.trait_edges,
         )
 
     def __getitem__(self, index: ParamIndex) -> float:
@@ -226,6 +237,10 @@ def read_params_from_file(path: str) -> Params:
             taus=data["taus"],
             betas=data["betas"],
             sigmas=data["sigmas"],
+            trait_edges=data.get(
+                "trait_edges",
+                [[0.0 for _ in data["trait_names"]] for _ in data["trait_names"]],
+            ),
         )
     betas = [[beta] for beta in data["betas"]]
     return Params(
@@ -235,6 +250,7 @@ def read_params_from_file(path: str) -> Params:
         taus=[data["tau"]],
         betas=betas,
         sigmas=data["sigmas"],
+        trait_edges=[[0.0 for _ in data["trait_names"]] for _ in data["trait_names"]],
     )
 
 
@@ -246,6 +262,7 @@ def write_params_to_file(params: Params, output_file: str) -> None:
         "taus": params.taus,
         "betas": params.betas,
         "sigmas": params.sigmas,
+        "trait_edges": params.trait_edges,
     }
     try:
         with open(output_file, "w", encoding="utf-8") as handle:
