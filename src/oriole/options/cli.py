@@ -14,6 +14,7 @@ class CoreOptions:
     dry: bool
     match_rust: bool
     analytical: bool
+    chunk_size: int | None
 
 
 @dataclass
@@ -44,6 +45,12 @@ def _build_parser() -> argparse.ArgumentParser:
         sub.add_argument("-d", "--dry", action="store_true")
         sub.add_argument("--match-rust", action="store_true", dest="match_rust")
         sub.add_argument("--analytical", action="store_true", dest="analytical")
+        sub.add_argument(
+            "--chunk-size",
+            dest="chunk_size",
+            type=int,
+            help="Number of variants to process per chunk (default ~2GB).",
+        )
 
     train = subparsers.add_parser(Action.TRAIN.value)
     add_core(train)
@@ -79,6 +86,7 @@ def get_choice(argv: list[str] | None = None):
             dry=bool(args.dry),
             match_rust=bool(args.match_rust),
             analytical=bool(args.analytical),
+            chunk_size=args.chunk_size,
         )
 
     if args.command == "import-phenet":

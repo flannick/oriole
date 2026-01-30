@@ -28,6 +28,7 @@ oriole scale-sigmas -i params.json -s 0.5 -o params_scaled.json
 - `--match-rust`: preserves the Rust behavior for initial parameter estimation
   (uses betas when estimating SE statistics).
 - `--analytical`: use analytical posterior estimates for classify instead of Gibbs sampling.
+- `--chunk-size`: number of variants to process per chunk (default targets ~2GB).
 
 ## Notes
 

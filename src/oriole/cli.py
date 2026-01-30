@@ -23,7 +23,12 @@ def run(argv: list[str] | None = None) -> None:
                 raise new_error("--analytical is only supported for classify.")
             train_or_check(config, choice.dry, match_rust=choice.match_rust)
         else:
-            classify_or_check(config, choice.dry, analytical=choice.analytical)
+            classify_or_check(
+                config,
+                choice.dry,
+                analytical=choice.analytical,
+                chunk_size=choice.chunk_size,
+            )
     elif isinstance(choice, ImportPhenetOptions):
         import_phenet(choice)
     elif isinstance(choice, ScaleSigmasOptions):
