@@ -11,22 +11,56 @@ from ..params import Params, write_params_to_file
 from ..report import Reporter
 from ..sample.trace_file import ParamTraceFileWriter
 from ..train.initial_params import estimate_initial_params
+from ..train.analytical import estimate_params_analytical
 from ..train.param_meta_stats import ParamMetaStats
 from ..util.threads import Threads
+
+
+class SummaryStub:
+    def __init__(self, params: Params) -> None:
+        self.params = params
+        self.n_chains_used = 1
+        self.intra_chain_vars = []
+        self.inter_chain_vars = []
+        self.inter_intra_ratios = []
+        self.relative_errors = []
+        self.inter_intra_ratios_mean = 0.0
+        self.relative_errors_mean = 0.0
+
+    def __str__(self) -> str:
+        return str(self.params)
 from .worker import MessageToWorker, TrainWorkerLauncher
 
 
-def train_or_check(config: Config, dry: bool, match_rust: bool = False) -> None:
+def train_or_check(
+    config: Config,
+    dry: bool,
+    match_rust: bool = False,
+    analytical: bool = False,
+    chunk_size: int | None = None,
+) -> None:
     data = load_data(config, Action.TRAIN)
     print(f"Loaded data for {data.gwas_data.meta.n_data_points()} variants")
     print(data.gwas_data)
     if dry:
         print("User picked dry run only, so doing nothing.")
         return
-    train(data, config, match_rust=match_rust)
+    train(data, config, match_rust=match_rust, analytical=analytical, chunk_size=chunk_size)
 
 
-def train(data, config: Config, match_rust: bool = False) -> None:
+def _default_chunk_size(n_traits: int) -> int:
+    bytes_target = 2 * 1024 ** 3
+    bytes_per_variant = (n_traits * 8 * 6) + (8 * 3)
+    return max(1, bytes_target // bytes_per_variant)
+
+
+def train(
+    data,
+    config: Config,
+    match_rust: bool = False,
+    analytical: bool = False,
+    chunk_size: int | None = None,
+) -> None:
     n_traits = data.gwas_data.meta.n_traits()
     params_trace_writer = None
     if config.files.trace:
@@ -38,6 +72,27 @@ def train(data, config: Config, match_rust: bool = False) -> None:
     )
     params = estimate_initial_params(data.gwas_data, match_rust=match_rust)
     print(params)
+
+    if analytical:
+        if chunk_size is None or chunk_size <= 0:
+            chunk_size = _default_chunk_size(data.gwas_data.meta.n_traits())
+        total_iters = max(1, config.train.n_iterations_per_round * max(1, config.train.n_rounds))
+        reporter = Reporter()
+        for i_iteration in range(total_iters):
+            params = estimate_params_analytical(data, params, chunk_size)
+            if params_trace_writer is not None:
+                params_trace_writer.write(params)
+            if (i_iteration + 1) % max(1, config.train.n_iterations_per_round) == 0:
+                reporter.report(
+                    SummaryStub(params),
+                    i_iteration // max(1, config.train.n_iterations_per_round),
+                    (i_iteration + 1),
+                    0,
+                )
+        if config.train.normalize_mu_to_one:
+            params = params.normalized_with_mu_one()
+        write_params_to_file(params, config.files.params)
+        return
 
     launcher = TrainWorkerLauncher(data, params, config.train)
     threads = Threads.new(launcher, n_threads)

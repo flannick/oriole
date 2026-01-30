@@ -19,9 +19,13 @@ def run(argv: list[str] | None = None) -> None:
         check_config(config)
         check_prerequisites(config)
         if choice.action == Action.TRAIN:
-            if choice.analytical:
-                raise new_error("--analytical is only supported for classify.")
-            train_or_check(config, choice.dry, match_rust=choice.match_rust)
+            train_or_check(
+                config,
+                choice.dry,
+                match_rust=choice.match_rust,
+                analytical=choice.analytical,
+                chunk_size=choice.chunk_size,
+            )
         else:
             classify_or_check(
                 config,
