@@ -297,7 +297,8 @@ The corresponding coefficients live in the `trait_edges` matrix in the params JS
 where `trait_edges[i][j]` is the coefficient for `trait_j -> trait_i`. Entries must
 be zero for edges that are not listed in the config.
 
-Note: training does not estimate `trait_edges` coefficients; supply them in the params
-file when using trait DAGs.
+When `[[trait_edges]]` are present, training estimates the coefficients for the
+allowed edges alongside the endophenotype loadings. Edges not listed in the config
+remain fixed at 0.
 
 ---

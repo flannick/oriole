@@ -38,16 +38,29 @@ class MessageToCentral:
 
 class TrainWorkerLauncher:
     def __init__(
-        self, data: LoadedData, params: Params, config: TrainConfig, mask: np.ndarray
+        self,
+        data: LoadedData,
+        params: Params,
+        config: TrainConfig,
+        mask: np.ndarray,
+        parent_mask: np.ndarray,
     ) -> None:
         self.data = data
         self.params = params
         self.config = config
         self.mask = mask
+        self.parent_mask = parent_mask
 
     def launch(self, in_queue, out_queue, i_thread: int) -> None:
         train_worker(
-            self.data, self.params, in_queue, out_queue, i_thread, self.config, self.mask
+            self.data,
+            self.params,
+            in_queue,
+            out_queue,
+            i_thread,
+            self.config,
+            self.mask,
+            self.parent_mask,
         )
 
 
@@ -59,6 +72,7 @@ def train_worker(
     i_thread: int,
     config: TrainConfig,
     mask: np.ndarray,
+    parent_mask: np.ndarray,
 ) -> None:
     vars = Vars.initial_vars(data.gwas_data, params)
     rng = np.random.default_rng()
@@ -73,7 +87,7 @@ def train_worker(
         if message.kind == "take_n_samples":
             sampler.reset_stats()
             sampler.sample_n(data.gwas_data, params, vars, int(message.payload), None, t_pinned)
-            params_new = sampler.var_stats.compute_new_params(data.weights, mask)
+            params_new = sampler.var_stats.compute_new_params(data.weights, mask, parent_mask)
             in_queue.put(MessageToCentral(i_thread, params_new))
         elif message.kind == "set_new_params":
             params = message.payload

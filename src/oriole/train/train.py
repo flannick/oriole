@@ -74,6 +74,11 @@ def train(
         f"Launching {n_threads} workers and burning in with {config.train.n_steps_burn_in} iterations"
     )
     mask = np.asarray(endophenotype_mask(config), dtype=bool)
+    trait_names = [item.name for item in config.gwas]
+    trait_index = {name: idx for idx, name in enumerate(trait_names)}
+    parent_mask = np.zeros((len(trait_names), len(trait_names)), dtype=bool)
+    for edge in config.trait_edges:
+        parent_mask[trait_index[edge.child], trait_index[edge.parent]] = True
     params = estimate_initial_params(
         data.gwas_data, config.endophenotypes, mask, match_rust=match_rust
     )
@@ -85,7 +90,7 @@ def train(
         total_iters = max(1, config.train.n_iterations_per_round * max(1, config.train.n_rounds))
         reporter = Reporter()
         for i_iteration in range(total_iters):
-            params = estimate_params_analytical(data, params, chunk_size, mask)
+            params = estimate_params_analytical(data, params, chunk_size, mask, parent_mask)
             if params_trace_writer is not None:
                 params_trace_writer.write(params)
             if (i_iteration + 1) % max(1, config.train.n_iterations_per_round) == 0:
@@ -100,7 +105,7 @@ def train(
         write_params_to_file(params, config.files.params)
         return
 
-    launcher = TrainWorkerLauncher(data, params, config.train, mask)
+    launcher = TrainWorkerLauncher(data, params, config.train, mask, parent_mask)
     threads = Threads.new(launcher, n_threads)
     print("Workers launched and burned in.")
 
