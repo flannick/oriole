@@ -16,6 +16,16 @@ class AnalyticalSums:
     weight_sum: float
 
 
+def _no_trait_edges(params: Params) -> bool:
+    return not np.any(np.asarray(params.trait_edges, dtype=float))
+
+
+def _solve_spd(mat: np.ndarray, rhs: np.ndarray) -> np.ndarray:
+    chol = np.linalg.cholesky(mat)
+    y = np.linalg.solve(chol, rhs)
+    return np.linalg.solve(chol.T, y)
+
+
 def _trait_matrices(params: Params) -> tuple[np.ndarray, np.ndarray]:
     beta = np.asarray(params.betas, dtype=float)
     sigma2 = np.asarray(params.sigmas, dtype=float) ** 2
@@ -52,18 +62,18 @@ def analytical_moments_chunk(
             continue
         o = betas_obs[i]
         v = sigma_t + np.diag(ses[i] ** 2)
-        v_inv_m = np.linalg.solve(v, m_mat)
+        v_inv_m = _solve_spd(v, m_mat)
         c_inv = tau_inv + m_mat.T @ v_inv_m
         c = np.linalg.inv(c_inv)
-        v_inv_o = np.linalg.solve(v, o)
+        v_inv_o = _solve_spd(v, o)
         m = c @ (tau_inv @ mu + m_mat.T @ v_inv_o)
 
         mu_t = m_mat @ m
-        v_inv_r = np.linalg.solve(v, o - mu_t)
+        v_inv_r = _solve_spd(v, o - mu_t)
         t_mean = mu_t + sigma_t @ v_inv_r
 
         h = m_mat - sigma_t @ v_inv_m
-        v_inv_sigma = np.linalg.solve(v, sigma_t)
+        v_inv_sigma = _solve_spd(v, sigma_t)
         cov_t = sigma_t - sigma_t @ v_inv_sigma + h @ c @ h.T
 
         ee = c + np.outer(m, m)
@@ -74,6 +84,68 @@ def analytical_moments_chunk(
         ee_sum += w * ee
         te_sum += w * te
         tt_sum += w * tt
+
+    return AnalyticalSums(
+        e_sum=e_sum,
+        ee_sum=ee_sum,
+        te_sum=te_sum,
+        tt_sum=tt_sum,
+        weight_sum=weight_sum,
+    )
+
+
+def analytical_moments_chunk_no_edges(
+    params: Params, betas_obs: np.ndarray, ses: np.ndarray, weights: np.ndarray
+) -> AnalyticalSums:
+    beta = np.asarray(params.betas, dtype=float)
+    sigma2 = np.asarray(params.sigmas, dtype=float) ** 2
+    tau2 = np.asarray(params.taus, dtype=float) ** 2
+    mu = np.asarray(params.mus, dtype=float)
+    n_vars = betas_obs.shape[0]
+    n_traits = params.n_traits()
+    n_endos = params.n_endos()
+    tau_inv = np.diag(1.0 / tau2)
+
+    e_sum = np.zeros(n_endos, dtype=float)
+    ee_sum = np.zeros((n_endos, n_endos), dtype=float)
+    te_sum = np.zeros((n_traits, n_endos), dtype=float)
+    t2_sum = np.zeros(n_traits, dtype=float)
+    weight_sum = float(np.sum(weights))
+
+    for i in range(n_vars):
+        w = float(weights[i])
+        if w <= 0.0:
+            continue
+        o = betas_obs[i]
+        se2 = ses[i] ** 2
+        v = sigma2 + se2
+        w_diag = np.diag(1.0 / v)
+        c = np.linalg.inv(tau_inv + beta.T @ w_diag @ beta)
+        m = c @ (tau_inv @ mu + beta.T @ w_diag @ o)
+        m2 = c + np.outer(m, m)
+
+        e_sum += w * m
+        ee_sum += w * m2
+
+        a = sigma2 / v
+        b = se2 / v
+        v_t = (sigma2 * se2) / v
+        for i_trait in range(n_traits):
+            b_i = beta[i_trait]
+            te_sum[i_trait] += w * (
+                a[i_trait] * o[i_trait] * m + b[i_trait] * (m2 @ b_i)
+            )
+            qf = float(b_i @ m2 @ b_i)
+            t2_sum[i_trait] += w * (
+                v_t[i_trait]
+                + (a[i_trait] * o[i_trait]) ** 2
+                + 2.0 * a[i_trait] * o[i_trait] * b[i_trait] * float(b_i @ m)
+                + (b[i_trait] ** 2) * qf
+            )
+
+    tt_sum = np.zeros((n_traits, n_traits), dtype=float)
+    for i_trait in range(n_traits):
+        tt_sum[i_trait, i_trait] = t2_sum[i_trait]
 
     return AnalyticalSums(
         e_sum=e_sum,
@@ -103,12 +175,16 @@ def estimate_params_analytical(
     tt_sum = np.zeros((n_traits, n_traits), dtype=float)
     w_sum = 0.0
 
+    no_edges = not np.any(parent_mask)
     for start in range(0, n, chunk_size):
         end = min(n, start + chunk_size)
         betas_obs = gwas.betas[start:end, :]
         ses = gwas.ses[start:end, :]
         w = weights[start:end]
-        moments = analytical_moments_chunk(params, betas_obs, ses, w)
+        if no_edges:
+            moments = analytical_moments_chunk_no_edges(params, betas_obs, ses, w)
+        else:
+            moments = analytical_moments_chunk(params, betas_obs, ses, w)
         e_sum += moments.e_sum
         ee_sum += moments.ee_sum
         te_sum += moments.te_sum

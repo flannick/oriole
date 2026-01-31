@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 try:
@@ -106,7 +107,11 @@ def load_config(path: str) -> Config:
     except Exception as exc:
         raise MocasaError(ErrorKind.TOML_DE, str(exc)) from exc
 
-    files = FilesConfig(**data["files"])
+    files_data = data.get("files", {})
+    params_path = files_data.get("params")
+    if not params_path:
+        params_path = str((Path(path).parent / "params_out.json").as_posix())
+    files = FilesConfig(trace=files_data.get("trace"), params=params_path)
     gwas = [
         GwasConfig(
             name=item["name"],
@@ -120,11 +125,32 @@ def load_config(path: str) -> Config:
         TraitEdgeConfig(parent=item["parent"], child=item["child"])
         for item in data.get("trait_edges", [])
     ]
-    train = TrainConfig(**data["train"])
-    classify_data = data["classify"].copy()
+    train_data = data.get("train")
+    if not train_data or "ids_file" not in train_data:
+        raise MocasaError(ErrorKind.TOML_DE, "Missing [train].ids_file in config.")
+    train = TrainConfig(
+        ids_file=train_data["ids_file"],
+        n_steps_burn_in=train_data.get("n_steps_burn_in", 1000),
+        n_samples_per_iteration=train_data.get("n_samples_per_iteration", 100),
+        n_iterations_per_round=train_data.get("n_iterations_per_round", 10),
+        n_rounds=train_data.get("n_rounds", 1),
+        normalize_mu_to_one=train_data.get("normalize_mu_to_one", True),
+        params_trace_file=train_data.get("params_trace_file"),
+        t_pinned=train_data.get("t_pinned"),
+    )
+    classify_data = data.get("classify")
+    if classify_data is None:
+        classify_data = {}
+    else:
+        classify_data = classify_data.copy()
     classify_data["params_override"] = _params_override_from_dict(
         classify_data.get("params_override")
     )
+    classify_data.setdefault("n_steps_burn_in", 1000)
+    classify_data.setdefault("n_samples", 1000)
+    classify_data.setdefault("out_file", "classify_out.tsv")
+    classify_data.setdefault("trace_ids", [])
+    classify_data.setdefault("t_pinned", None)
     classify = ClassifyConfig(**classify_data)
     return Config(
         files=files,

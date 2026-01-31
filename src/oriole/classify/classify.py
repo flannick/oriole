@@ -56,9 +56,20 @@ def classify_or_check(
     dry: bool,
     analytical: bool = True,
     chunk_size: int | None = None,
+    verbose: bool = False,
 ) -> None:
     params = read_params_from_file(config.files.params)
     check_params(config, params)
+    if verbose:
+        print(
+            "Classify config: {} traits, {} endos, {} edges, analytical={}, chunk_size={}".format(
+                len(config.gwas),
+                len(config.endophenotypes),
+                len(config.trait_edges),
+                analytical,
+                chunk_size or "auto",
+            )
+        )
     print(f"Read from file mus = {params.mus}, taus = {params.taus}")
     if config.classify.params_override is not None:
         params = params.plus_overwrite(config.classify.params_override)
@@ -76,10 +87,13 @@ def classify_or_check(
     )
 
 
-def _default_chunk_size(n_traits: int) -> int:
+def _default_chunk_size(n_traits: int, n_data_points: int) -> int:
     bytes_target = 2 * 1024 ** 3
     bytes_per_variant = (n_traits * 8 * 6) + (8 * 3)
-    return max(1, bytes_target // bytes_per_variant)
+    chunk = max(1, bytes_target // bytes_per_variant)
+    if n_data_points > 0:
+        chunk = min(chunk, n_data_points)
+    return chunk
 
 
 def classify(
@@ -90,8 +104,17 @@ def classify(
     chunk_size: int | None = None,
 ) -> None:
     classify_config = config.classify
+    if classify_config.n_samples <= 0:
+        classify_config = ClassifyConfig(
+            params_override=classify_config.params_override,
+            n_steps_burn_in=classify_config.n_steps_burn_in,
+            n_samples=min(1000, data.meta.n_data_points()),
+            out_file=classify_config.out_file,
+            trace_ids=classify_config.trace_ids,
+            t_pinned=classify_config.t_pinned,
+        )
     if chunk_size is None or chunk_size <= 0:
-        chunk_size = _default_chunk_size(data.meta.n_traits())
+        chunk_size = _default_chunk_size(data.meta.n_traits(), data.meta.n_data_points())
     use_vectorized = chunk_size > 1
     if use_vectorized:
         classify_vectorized(data, params, classify_config, analytical, chunk_size)

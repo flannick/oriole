@@ -230,19 +230,39 @@ def read_params_from_file(path: str) -> Params:
         raise for_file(path, exc) from exc
 
     if "endo_names" in data:
+        trait_names = data["trait_names"]
+        endo_names = data["endo_names"]
+        mus = data["mus"]
+        taus = data["taus"]
+        betas = data["betas"]
+        sigmas = data["sigmas"]
+        trait_edges = data.get("trait_edges")
+        if trait_edges is None:
+            print("Note: trait_edges not provided; defaulting to all zeros.")
+            trait_edges = [[0.0 for _ in trait_names] for _ in trait_names]
+        if len(betas) != len(trait_names):
+            raise new_error("Params betas must have one row per trait.")
+        for row in betas:
+            if len(row) != len(endo_names):
+                raise new_error("Params betas rows must match number of endophenotypes.")
+        if len(trait_edges) != len(trait_names):
+            raise new_error("Params trait_edges must have one row per trait.")
+        for row in trait_edges:
+            if len(row) != len(trait_names):
+                raise new_error("Params trait_edges rows must match number of traits.")
         return Params(
-            trait_names=data["trait_names"],
-            endo_names=data["endo_names"],
-            mus=data["mus"],
-            taus=data["taus"],
-            betas=data["betas"],
-            sigmas=data["sigmas"],
-            trait_edges=data.get(
-                "trait_edges",
-                [[0.0 for _ in data["trait_names"]] for _ in data["trait_names"]],
-            ),
+            trait_names=trait_names,
+            endo_names=endo_names,
+            mus=mus,
+            taus=taus,
+            betas=betas,
+            sigmas=sigmas,
+            trait_edges=trait_edges,
         )
     betas = [[beta] for beta in data["betas"]]
+    if len(betas) != len(data["trait_names"]):
+        raise new_error("Params betas must have one row per trait.")
+    print("Note: using single-endophenotype params format (endo name = 'E').")
     return Params(
         trait_names=data["trait_names"],
         endo_names=["E"],

@@ -25,6 +25,7 @@ def run(argv: list[str] | None = None) -> None:
                 match_rust=choice.match_rust,
                 analytical=choice.analytical,
                 chunk_size=choice.chunk_size,
+                verbose=choice.verbose,
             )
         else:
             classify_or_check(
@@ -32,6 +33,7 @@ def run(argv: list[str] | None = None) -> None:
                 choice.dry,
                 analytical=choice.analytical,
                 chunk_size=choice.chunk_size,
+                verbose=choice.verbose,
             )
     elif isinstance(choice, ImportPhenetOptions):
         import_phenet(choice)

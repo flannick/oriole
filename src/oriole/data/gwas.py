@@ -54,7 +54,9 @@ class GwasReader(Iterator[GwasRecord]):
         try:
             return parts.index(name)
         except ValueError as exc:
-            raise new_error(f"No {name} column") from exc
+            raise new_error(
+                "No {} column. Available columns: {}".format(name, ", ".join(parts))
+            ) from exc
 
     def __next__(self) -> GwasRecord:
         line = next(self._lines_iter)
@@ -80,5 +82,4 @@ class GwasReader(Iterator[GwasRecord]):
         if se is None:
             raise new_error(f"Missing value for '{self._cols.se}'.")
         return GwasRecord(var_id=var_id, beta=beta, se=se)
-
 

@@ -132,16 +132,28 @@ def load_data(config: Config, action: Action) -> LoadedData:
             ses[i_data_point, i_trait] = beta_se.se
 
     if action == Action.TRAIN:
+        missing_by_trait: dict[str, list[str]] = {name: [] for name in trait_names}
         for i_data_point, var_id in enumerate(var_ids):
             for i_trait, trait_name in enumerate(trait_names):
-                if np.isnan(betas[i_data_point, i_trait]):
-                    raise new_error(
-                        f"Missing beta for trait {trait_name} for var id {var_id}"
-                    )
-                if np.isnan(ses[i_data_point, i_trait]):
-                    raise new_error(
-                        f"Missing se for trait {trait_name} for var id {var_id}"
-                    )
+                if np.isnan(betas[i_data_point, i_trait]) or np.isnan(
+                    ses[i_data_point, i_trait]
+                ):
+                    if len(missing_by_trait[trait_name]) < 5:
+                        missing_by_trait[trait_name].append(var_id)
+        missing_counts = {
+            name: len(ids)
+            for name, ids in missing_by_trait.items()
+            if len(ids) > 0
+        }
+        if missing_counts:
+            parts = []
+            for name, count in missing_counts.items():
+                examples = ", ".join(missing_by_trait[name])
+                parts.append(f"{name}: {count} missing (e.g., {examples})")
+            raise new_error(
+                "Missing GWAS entries for training IDs. Fix by aligning IDs across GWAS files. "
+                + " | ".join(parts)
+            )
 
     endo_names = [item.name for item in config.endophenotypes]
     meta = Meta(trait_names=trait_names, var_ids=var_ids, endo_names=endo_names)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from .error import new_error
 from .options.config import Config, endophenotype_mask, endophenotype_names
-from .util.dag import is_dag
+from .util.dag import is_dag, find_cycle
 from .params import Params
 
 
@@ -46,14 +46,26 @@ def check_config(config: Config) -> None:
         seen_edges.add(key)
         edges.append(key)
     if edges and not is_dag(trait_names, edges):
+        cycle = find_cycle(trait_names, edges)
+        if cycle:
+            cycle_str = " -> ".join(cycle)
+            raise new_error(f"Trait edges must form a DAG (cycle detected: {cycle_str}).")
         raise new_error("Trait edges must form a DAG (cycle detected).")
 
 
 def check_params(config: Config, params: Params) -> None:
     if len(config.gwas) != len(params.trait_names):
+        config_names = [item.name for item in config.gwas]
+        params_names = params.trait_names
+        missing = [name for name in config_names if name not in params_names]
+        extra = [name for name in params_names if name not in config_names]
         raise new_error(
-            "Number GWAS files ({}) does not match number of traits in params ({})".format(
-                len(config.gwas), len(params.trait_names)
+            "Number GWAS files ({}) does not match number of traits in params ({}). "
+            "Missing in params: {}. Extra in params: {}.".format(
+                len(config.gwas),
+                len(params.trait_names),
+                ", ".join(missing) or "<none>",
+                ", ".join(extra) or "<none>",
             )
         )
     for i_trait, (gwas, trait_name) in enumerate(
@@ -61,8 +73,12 @@ def check_params(config: Config, params: Params) -> None:
     ):
         if gwas.name != trait_name:
             raise new_error(
-                "Trait name in GWAS file {} ({}) does not match trait name in params ({})".format(
-                    i_trait, gwas.name, trait_name
+                "Trait name mismatch at index {}: config has '{}' but params has '{}'. "
+                "Expected order: [{}].".format(
+                    i_trait,
+                    gwas.name,
+                    trait_name,
+                    ", ".join([item.name for item in config.gwas]),
                 )
             )
     config_endos = endophenotype_names(config)

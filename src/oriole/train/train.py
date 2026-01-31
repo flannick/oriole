@@ -39,8 +39,19 @@ def train_or_check(
     match_rust: bool = False,
     analytical: bool = True,
     chunk_size: int | None = None,
+    verbose: bool = False,
 ) -> None:
     data = load_data(config, Action.TRAIN)
+    if verbose:
+        print(
+            "Train config: {} traits, {} endos, {} edges, analytical={}, chunk_size={}".format(
+                data.gwas_data.meta.n_traits(),
+                len(config.endophenotypes),
+                len(config.trait_edges),
+                analytical,
+                chunk_size or "auto",
+            )
+        )
     print(f"Loaded data for {data.gwas_data.meta.n_data_points()} variants")
     print(data.gwas_data)
     if dry:
@@ -49,10 +60,13 @@ def train_or_check(
     train(data, config, match_rust=match_rust, analytical=analytical, chunk_size=chunk_size)
 
 
-def _default_chunk_size(n_traits: int) -> int:
+def _default_chunk_size(n_traits: int, n_data_points: int) -> int:
     bytes_target = 2 * 1024 ** 3
     bytes_per_variant = (n_traits * 8 * 6) + (8 * 3)
-    return max(1, bytes_target // bytes_per_variant)
+    chunk = max(1, bytes_target // bytes_per_variant)
+    if n_data_points > 0:
+        chunk = min(chunk, n_data_points)
+    return chunk
 
 
 def train(
@@ -86,7 +100,9 @@ def train(
 
     if analytical:
         if chunk_size is None or chunk_size <= 0:
-            chunk_size = _default_chunk_size(data.gwas_data.meta.n_traits())
+            chunk_size = _default_chunk_size(
+                data.gwas_data.meta.n_traits(), data.gwas_data.meta.n_data_points()
+            )
         total_iters = max(1, config.train.n_iterations_per_round * max(1, config.train.n_rounds))
         reporter = Reporter()
         for i_iteration in range(total_iters):
@@ -110,6 +126,8 @@ def train(
     print("Workers launched and burned in.")
 
     n_samples = config.train.n_samples_per_iteration
+    if n_samples <= 0:
+        n_samples = min(100, data.gwas_data.meta.n_data_points())
     reporter = Reporter()
     i_round = 0
     i_iteration = 0

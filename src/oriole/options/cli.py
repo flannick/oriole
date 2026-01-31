@@ -15,6 +15,7 @@ class CoreOptions:
     match_rust: bool
     analytical: bool
     chunk_size: int | None
+    verbose: bool
 
 
 @dataclass
@@ -43,6 +44,7 @@ def _build_parser() -> argparse.ArgumentParser:
     def add_core(sub: argparse.ArgumentParser) -> None:
         sub.add_argument("-f", "--conf-file", dest="conf_file")
         sub.add_argument("-d", "--dry", action="store_true")
+        sub.add_argument("--verbose", action="store_true")
         sub.add_argument("--match-rust", action="store_true", dest="match_rust")
         sub.add_argument(
             "--gibbs",
@@ -92,6 +94,7 @@ def get_choice(argv: list[str] | None = None):
             match_rust=bool(args.match_rust),
             analytical=not bool(args.gibbs),
             chunk_size=args.chunk_size,
+            verbose=bool(args.verbose),
         )
 
     if args.command == "import-phenet":
