@@ -13,6 +13,20 @@ Gibbs sampling, multiple endophenotypes, and directed edges between traits (a DA
 python -m pip install -e .
 ```
 
+If you have root (system install):
+
+```bash
+sudo python -m pip install -e .
+```
+
+If you do not have root (virtual environment):
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
+```
+
 Dependencies: `numpy`, `tomli`, `tomli-w`. Tests use `pytest`.
 
 ### 2) Create a config
@@ -31,10 +45,22 @@ Update the GWAS file paths and the variant ID list.
 oriole train -f config.toml
 ```
 
+Or via the wrapper script:
+
+```bash
+python run_oriole.py train -f config.toml
+```
+
 ### 4) Classify
 
 ```bash
 oriole classify -f config.toml
+```
+
+Or via the wrapper script:
+
+```bash
+python run_oriole.py classify -f config.toml
 ```
 
 ---
@@ -91,10 +117,22 @@ Tests:
 oriole train -f config.toml
 ```
 
+Or:
+
+```bash
+python run_oriole.py train -f config.toml
+```
+
 Analytical EM is the default. For Gibbs sampling:
 
 ```bash
 oriole train -f config.toml --gibbs
+```
+
+Or:
+
+```bash
+python run_oriole.py train -f config.toml --gibbs
 ```
 
 ### Classification
@@ -103,10 +141,22 @@ oriole train -f config.toml --gibbs
 oriole classify -f config.toml
 ```
 
+Or:
+
+```bash
+python run_oriole.py classify -f config.toml
+```
+
 Analytical inference is the default. For Gibbs sampling:
 
 ```bash
 oriole classify -f config.toml --gibbs
+```
+
+Or:
+
+```bash
+python run_oriole.py classify -f config.toml --gibbs
 ```
 
 ---
