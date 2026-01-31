@@ -8,9 +8,11 @@ Gibbs sampling, multiple endophenotypes, and directed edges between traits (a DA
 
 ### 1) Install
 
-**Recommended Python:** 3.10+  
-(Older Python versions, e.g. 3.7, will fail to install modern NumPy.)
-
+**Recommended Python:** 3.10+ (tested)
+	•	Python 3.7 and older are not supported. They cannot install ORIOLE’s NumPy requirement (numpy>=1.23).
+	•	If you’re using conda, create an environment with python=3.10 (recommended).
+	•	If you’re using venv, make sure python3.10 (or newer) is the interpreter you use to create the venv.
+  
 Run installs from the **repository root** (the directory containing `pyproject.toml`).
 
 #### Option A (recommended): conda
