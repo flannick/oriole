@@ -4,32 +4,51 @@ ORIOLE is a linear-Gaussian model for joint inference of latent endophenotypes a
 trait effects from GWAS summary statistics. It supports analytical inference and
 Gibbs sampling, multiple endophenotypes, and directed edges between traits (a DAG).
 
-## Quick Start
+## Quick start
 
 ### 1) Install
 
+**Recommended Python:** 3.10+  
+(Older Python versions, e.g. 3.7, will fail to install modern NumPy.)
+
+Run installs from the **repository root** (the directory containing `pyproject.toml`).
+
+#### Option A (recommended): conda
+
 ```bash
-# from src/oriole
+conda create -n oriole310 python=3.10 pip -y
+conda activate oriole310
+python -m pip install -U pip setuptools wheel
 python -m pip install -e .
 ```
 
-If you have root (system install):
+#### Option B: venv (requires `python3.10` available on your system)
 
 ```bash
-sudo python -m pip install -e .
-```
-
-If you do not have root (virtual environment):
-
-```bash
-python -m venv .venv
+python3.10 -m venv .venv
 source .venv/bin/activate
+python -m pip install -U pip setuptools wheel
 python -m pip install -e .
 ```
 
 Dependencies: `numpy`, `tomli`, `tomli-w`. Tests use `pytest`.
 
-### 2) Create a config
+> Developer note: avoid naming a local module/package `math` (it shadows the Python
+> standard library). Internal math helpers live under `oriole/math_utils/`.
+
+### 2) Run the included sample configs (recommended first run)
+
+The sample TOML configs under `tests/data/` use **relative paths** (e.g.
+`sample_1000_ids.txt`). The simplest way to run them is to change into that
+directory first:
+
+```bash
+cd tests/data
+oriole train -f sample_config_train.toml
+oriole classify -f sample_config_classify.toml
+```
+
+### 3) Create your own config
 
 Copy a sample config and edit paths:
 
@@ -39,7 +58,7 @@ cp tests/data/sample_config_train.toml ./config.toml
 
 Update the GWAS file paths and the variant ID list.
 
-### 3) Train
+### 4) Train
 
 ```bash
 oriole train -f config.toml
@@ -51,7 +70,7 @@ Or via the wrapper script:
 python run_oriole.py train -f config.toml
 ```
 
-### 4) Classify
+### 5) Classify
 
 ```bash
 oriole classify -f config.toml
@@ -65,7 +84,7 @@ python run_oriole.py classify -f config.toml
 
 ---
 
-## Model Overview
+## Model overview
 
 For each variant *j* and trait *i* (with K endophenotypes):
 
@@ -93,7 +112,9 @@ by analytical EM training and analytical classification.
 
 ---
 
-## Install & Dependencies
+## Install & dependencies
+
+From the repository root:
 
 ```bash
 python -m pip install -e .
@@ -161,7 +182,7 @@ python run_oriole.py classify -f config.toml --gibbs
 
 ---
 
-## Configuration File
+## Configuration file
 
 ORIOLE uses TOML. A minimal template:
 
@@ -285,7 +306,7 @@ If no weight is provided, it defaults to 1.0.
 
 ---
 
-## Test Data Included
+## Test data included
 
 The repo includes small test data under `tests/data/`:
 
@@ -309,7 +330,7 @@ The repo includes small test data under `tests/data/`:
 
 ## Tests
 
-From `src/oriole`:
+From the repository root:
 
 ```bash
 pytest -q
@@ -317,7 +338,7 @@ pytest -q
 
 ---
 
-## Full Usage Reference
+## Full usage reference
 
 ### Train
 
@@ -333,7 +354,7 @@ oriole classify -f config.toml [--gibbs] [--chunk-size N]
 
 ---
 
-## More Complex Models
+## More complex models
 
 ### Multiple endophenotypes
 
@@ -369,5 +390,3 @@ The corresponding coefficients live in the `trait_edges` matrix in the params JS
 When `[[trait_edges]]` are present, training estimates the coefficients for the
 allowed edges alongside the endophenotype loadings. Edges not listed in the config
 remain fixed at 0.
-
----
