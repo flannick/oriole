@@ -8,12 +8,13 @@ Gibbs sampling, multiple endophenotypes, and directed edges between traits (a DA
 
 ### 1) Install
 
-**Recommended Python:** 3.10+ (tested)  
-	•	Python 3.7 and older are not supported. They cannot install ORIOLE’s NumPy requirement (numpy>=1.23).  
-	•	If you’re using conda, create an environment with python=3.10 (recommended).  
-	•	If you’re using venv, make sure python3.10 (or newer) is the interpreter you use to create the venv.  
-  
-Run installs from the **repository root** (the directory containing `pyproject.toml`).
+**Tested:** Python 3.10 (recommended)  
+**Not supported:** Python 3.7 or older (cannot satisfy `numpy>=1.23`)
+
+Notes:
+- If you see `No matching distribution found for numpy>=1.23`, your Python is too old.
+- Run installs from the repository root (the directory containing `pyproject.toml`).
+- Do not mix conda and venv in the same shell.
 
 #### Option A (recommended): conda
 
@@ -111,24 +112,6 @@ The observed standard errors come from the GWAS files. The parameters to fit are
 
 The model is linear-Gaussian, so analytical posterior moments are available and used
 by analytical EM training and analytical classification.
-
----
-
-## Install & dependencies
-
-From the repository root:
-
-```bash
-python -m pip install -e .
-```
-
-Required:
-- `numpy`
-- `tomli`
-- `tomli-w`
-
-Tests:
-- `pytest`
 
 ---
 
@@ -337,58 +320,3 @@ From the repository root:
 ```bash
 pytest -q
 ```
-
----
-
-## Full usage reference
-
-### Train
-
-```bash
-oriole train -f config.toml [--gibbs] [--chunk-size N] [--match-rust]
-```
-
-### Classify
-
-```bash
-oriole classify -f config.toml [--gibbs] [--chunk-size N]
-```
-
----
-
-## More complex models
-
-### Multiple endophenotypes
-
-Add `[[endophenotypes]]` blocks to your config and assign each endo to a subset of
-traits. Traits listed under an endo have free betas; missing traits are masked.
-
-```toml
-[[endophenotypes]]
-name = "E1"
-traits = ["fi", "isiadj", "bmi"]  # subset of gwas names, or ["*"] for all traits
-
-[[endophenotypes]]
-name = "E2"
-traits = ["bmi", "whradj", "bfp"]
-```
-
-### Trait-to-trait DAG edges
-
-You can also specify directed edges between traits. These edges must form a DAG.
-Add them to the config via `[[trait_edges]]` blocks:
-
-```toml
-[[trait_edges]]
-parent = "trait1"
-child = "trait2"
-
-[[trait_edges]]
-parent = "trait2"
-child = "trait3"
-```
-
-The corresponding coefficients live in the `trait_edges` matrix in the params JSON.
-When `[[trait_edges]]` are present, training estimates the coefficients for the
-allowed edges alongside the endophenotype loadings. Edges not listed in the config
-remain fixed at 0.
