@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..error import new_error
-from ..math.stats import Stats
-from ..math.trident import TridentStats
+from ..math_utils.stats import Stats
+from ..math_utils.trident import TridentStats
 from ..params import ParamIndex, Params
 
 

@@ -7,7 +7,7 @@ import numpy as np
 import re
 
 from ..error import new_error, for_context, for_file
-from ..math.matrix import matrix_fill
+from ..math_utils.matrix import matrix_fill
 from ..options.action import Action
 from typing import TYPE_CHECKING
 

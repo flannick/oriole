@@ -4,32 +4,54 @@ ORIOLE is a linear-Gaussian model for joint inference of latent endophenotypes a
 trait effects from GWAS summary statistics. It supports analytical inference and
 Gibbs sampling, multiple endophenotypes, and directed edges between traits (a DAG).
 
-## Quick Start
+## Quick start
 
 ### 1) Install
 
+**Tested:** Python 3.10 (recommended)  
+**Not supported:** Python 3.7 or older (cannot satisfy `numpy>=1.23`)
+
+Notes:
+- If you see `No matching distribution found for numpy>=1.23`, your Python is too old.
+- Run installs from the repository root (the directory containing `pyproject.toml`).
+- Do not mix conda and venv in the same shell.
+
+#### Option A (recommended): conda
+
 ```bash
-# from src/oriole
+conda create -n oriole310 python=3.10 pip -y
+conda activate oriole310
+python -m pip install -U pip setuptools wheel
 python -m pip install -e .
 ```
 
-If you have root (system install):
+#### Option B: venv (requires `python3.10` available on your system)
 
 ```bash
-sudo python -m pip install -e .
-```
-
-If you do not have root (virtual environment):
-
-```bash
-python -m venv .venv
+python3.10 -m venv .venv
 source .venv/bin/activate
+python -m pip install -U pip setuptools wheel
 python -m pip install -e .
 ```
 
 Dependencies: `numpy`, `tomli`, `tomli-w`. Tests use `pytest`.
 
-### 2) Create a config
+> Developer note: avoid naming a local module/package `math` (it shadows the Python
+> standard library). Internal math helpers live under `oriole/math_utils/`.
+
+### 2) Run the included sample configs (recommended first run)
+
+The sample TOML configs under `tests/data/` use **relative paths** (e.g.
+`sample_1000_ids.txt`). The simplest way to run them is to change into that
+directory first:
+
+```bash
+cd tests/data
+oriole train -f sample_config_train.toml
+oriole classify -f sample_config_classify.toml
+```
+
+### 3) Create your own config
 
 Copy a sample config and edit paths:
 
@@ -39,7 +61,7 @@ cp tests/data/sample_config_train.toml ./config.toml
 
 Update the GWAS file paths and the variant ID list.
 
-### 3) Train
+### 4) Train
 
 ```bash
 oriole train -f config.toml
@@ -51,7 +73,7 @@ Or via the wrapper script:
 python run_oriole.py train -f config.toml
 ```
 
-### 4) Classify
+### 5) Classify
 
 ```bash
 oriole classify -f config.toml
@@ -65,7 +87,7 @@ python run_oriole.py classify -f config.toml
 
 ---
 
-## Model Overview
+## Model overview
 
 For each variant *j* and trait *i* (with K endophenotypes):
 
@@ -90,22 +112,6 @@ The observed standard errors come from the GWAS files. The parameters to fit are
 
 The model is linear-Gaussian, so analytical posterior moments are available and used
 by analytical EM training and analytical classification.
-
----
-
-## Install & Dependencies
-
-```bash
-python -m pip install -e .
-```
-
-Required:
-- `numpy`
-- `tomli`
-- `tomli-w`
-
-Tests:
-- `pytest`
 
 ---
 
@@ -161,7 +167,7 @@ python run_oriole.py classify -f config.toml --gibbs
 
 ---
 
-## Configuration File
+## Configuration file
 
 ORIOLE uses TOML. A minimal template:
 
@@ -285,7 +291,7 @@ If no weight is provided, it defaults to 1.0.
 
 ---
 
-## Test Data Included
+## Test data included
 
 The repo includes small test data under `tests/data/`:
 
@@ -309,65 +315,8 @@ The repo includes small test data under `tests/data/`:
 
 ## Tests
 
-From `src/oriole`:
+From the repository root:
 
 ```bash
 pytest -q
 ```
-
----
-
-## Full Usage Reference
-
-### Train
-
-```bash
-oriole train -f config.toml [--gibbs] [--chunk-size N] [--match-rust]
-```
-
-### Classify
-
-```bash
-oriole classify -f config.toml [--gibbs] [--chunk-size N]
-```
-
----
-
-## More Complex Models
-
-### Multiple endophenotypes
-
-Add `[[endophenotypes]]` blocks to your config and assign each endo to a subset of
-traits. Traits listed under an endo have free betas; missing traits are masked.
-
-```toml
-[[endophenotypes]]
-name = "E1"
-traits = ["fi", "isiadj", "bmi"]  # subset of gwas names, or ["*"] for all traits
-
-[[endophenotypes]]
-name = "E2"
-traits = ["bmi", "whradj", "bfp"]
-```
-
-### Trait-to-trait DAG edges
-
-You can also specify directed edges between traits. These edges must form a DAG.
-Add them to the config via `[[trait_edges]]` blocks:
-
-```toml
-[[trait_edges]]
-parent = "trait1"
-child = "trait2"
-
-[[trait_edges]]
-parent = "trait2"
-child = "trait3"
-```
-
-The corresponding coefficients live in the `trait_edges` matrix in the params JSON.
-When `[[trait_edges]]` are present, training estimates the coefficients for the
-allowed edges alongside the endophenotype loadings. Edges not listed in the config
-remain fixed at 0.
-
----
