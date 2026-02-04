@@ -15,6 +15,7 @@ from .options.config import (
     GwasConfig,
     TrainConfig,
     dump_config,
+    OutliersConfig,
 )
 from .params import Params, ParamsOverride, write_params_to_file
 
@@ -157,11 +158,20 @@ class ConfigBuilder:
         )
         endo_name = self.endo_name or "E"
         endophenotypes = [EndophenotypeConfig(name=endo_name, traits=["*"])]
+        outliers = OutliersConfig(
+            enabled=False,
+            kappa=1.0,
+            pi=0.0,
+            pi_by_trait=None,
+            max_enum_traits=12,
+            method=None,
+        )
         return Config(
             files=files,
             gwas=gwas,
             endophenotypes=endophenotypes,
             trait_edges=[],
+            outliers=outliers,
             train=train,
             classify=classify,
         )
@@ -191,6 +201,8 @@ class ConfigBuilder:
                 [0.0 for _ in range(len(trait_names))]
                 for _ in range(len(trait_names))
             ],
+            outlier_kappa=1.0,
+            outlier_pis=[0.0 for _ in range(len(trait_names))],
         )
 
 

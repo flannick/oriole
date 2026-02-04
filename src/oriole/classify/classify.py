@@ -10,12 +10,15 @@ from ..data import GwasData, load_data, Meta
 from ..error import new_error
 from ..options.action import Action
 from ..options.config import ClassifyConfig, Config
+from ..options.inference import resolve_inference
 from ..params import Params, read_params_from_file
 from ..sample.var_stats import SampledClassification
 from ..util.threads import Threads, TaskQueueObserver
 from .worker import Classification, MessageToCentral, MessageToWorker, ClassifyWorkerLauncher
 from .analytical import analytical_classification_chunk, calculate_mu_chunk
 from .gibbs_vectorized import gibbs_classification_chunk
+from .outliers_analytic import outliers_analytic_classification_chunk
+from .outliers_variational import outliers_variational_classification_chunk
 
 
 class Observer(TaskQueueObserver):
@@ -54,19 +57,20 @@ class Observer(TaskQueueObserver):
 def classify_or_check(
     config: Config,
     dry: bool,
-    analytical: bool = True,
+    inference: str = "auto",
     chunk_size: int | None = None,
     verbose: bool = False,
 ) -> None:
     params = read_params_from_file(config.files.params)
     check_params(config, params)
+    inference_mode = resolve_inference(config, inference, len(config.gwas))
     if verbose:
         print(
-            "Classify config: {} traits, {} endos, {} edges, analytical={}, chunk_size={}".format(
+            "Classify config: {} traits, {} endos, {} edges, inference={}, chunk_size={}".format(
                 len(config.gwas),
                 len(config.endophenotypes),
                 len(config.trait_edges),
-                analytical,
+                inference_mode,
                 chunk_size or "auto",
             )
         )
@@ -82,7 +86,7 @@ def classify_or_check(
         data.gwas_data,
         params,
         config,
-        analytical=analytical,
+        inference=inference_mode,
         chunk_size=chunk_size,
     )
 
@@ -100,7 +104,7 @@ def classify(
     data: GwasData,
     params: Params,
     config: Config,
-    analytical: bool = True,
+    inference: str = "auto",
     chunk_size: int | None = None,
 ) -> None:
     classify_config = config.classify
@@ -115,13 +119,15 @@ def classify(
         )
     if chunk_size is None or chunk_size <= 0:
         chunk_size = _default_chunk_size(data.meta.n_traits(), data.meta.n_data_points())
-    use_vectorized = chunk_size > 1
+    use_vectorized = chunk_size > 1 and inference == "analytic" and not config.outliers.enabled
     if use_vectorized:
-        classify_vectorized(data, params, classify_config, analytical, chunk_size)
+        classify_vectorized(data, params, classify_config, inference, chunk_size)
         return
 
     n_threads = max(os.cpu_count() or 1, 3)
-    launcher = ClassifyWorkerLauncher(data, params, classify_config, analytical=analytical)
+    launcher = ClassifyWorkerLauncher(
+        data, params, classify_config, inference=inference, outliers_enabled=config.outliers.enabled
+    )
     threads = Threads.new(launcher, n_threads)
     meta = data.meta
     out_messages = (MessageToWorker.data_point(i) for i in range(meta.n_data_points()))
@@ -137,9 +143,11 @@ def classify_vectorized(
     data: GwasData,
     params: Params,
     config: ClassifyConfig,
-    analytical: bool,
+    inference: str,
     chunk_size: int,
 ) -> None:
+    if inference != "analytic":
+        raise new_error("Vectorized classification is only supported for analytic inference.")
     meta = data.meta
     n = meta.n_data_points()
     with open(config.out_file, "w", encoding="utf-8") as handle:
@@ -152,7 +160,7 @@ def classify_vectorized(
                 for i in range(start, end):
                     single, is_col = data.only_data_point(i)
                     params_reduced = params.reduce_to(single.meta.trait_names, is_col)
-                    if analytical:
+                    if inference == "analytic":
                         sampled = analytical_classification_chunk(
                             params_reduced, single.betas, single.ses
                         )
@@ -165,27 +173,28 @@ def classify_vectorized(
                             config.n_samples,
                             config.t_pinned or False,
                         )
-                    mu_calc = calculate_mu_chunk(
-                        params_reduced,
-                        single.betas,
-                        single.ses,
-                    )[0]
+                    if inference == "analytic":
+                        mu_calc = calculate_mu_chunk(
+                            params_reduced,
+                            single.betas,
+                            single.ses,
+                        )[0]
+                    else:
+                        mu_calc = sampled.e_mean[0]
                     classification = Classification(sampled, mu_calc)
                     handle.write(format_entry(single.meta.var_ids[0], classification))
                 continue
 
-            if analytical:
+            if inference == "analytic":
                 sampled = analytical_classification_chunk(params, betas, ses)
+            elif inference == "variational":
+                sampled = outliers_variational_classification_chunk(params, betas, ses)
             else:
-                sampled = gibbs_classification_chunk(
-                    params,
-                    betas,
-                    ses,
-                    config.n_steps_burn_in,
-                    config.n_samples,
-                    config.t_pinned or False,
-                )
-            mu_calc = calculate_mu_chunk(params, betas, ses)
+                sampled = outliers_analytic_classification_chunk(params, betas, ses)
+            if inference == "analytic":
+                mu_calc = calculate_mu_chunk(params, betas, ses)
+            else:
+                mu_calc = sampled.e_mean
             for i, var_id in enumerate(meta.var_ids[start:end]):
                 classification = Classification(
                     SampledClassification(

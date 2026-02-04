@@ -51,6 +51,21 @@ def check_config(config: Config) -> None:
             cycle_str = " -> ".join(cycle)
             raise new_error(f"Trait edges must form a DAG (cycle detected: {cycle_str}).")
         raise new_error("Trait edges must form a DAG (cycle detected).")
+    if config.outliers.enabled:
+        if config.outliers.kappa < 1.0:
+            raise new_error("Outlier kappa must be >= 1.0.")
+        if not (0.0 < config.outliers.pi < 1.0):
+            raise new_error("Outlier pi must be in (0, 1).")
+        if config.outliers.pi_by_trait:
+            for name, value in config.outliers.pi_by_trait.items():
+                if name not in gwas_names:
+                    raise new_error(f"Outlier pi_by_trait references unknown trait {name}.")
+                if not (0.0 < value < 1.0):
+                    raise new_error(
+                        f"Outlier pi for trait {name} must be in (0, 1)."
+                    )
+        if config.outliers.max_enum_traits <= 0:
+            raise new_error("Outlier max_enum_traits must be positive.")
 
 
 def check_params(config: Config, params: Params) -> None:
@@ -98,6 +113,13 @@ def check_params(config: Config, params: Params) -> None:
     for row in params.trait_edges:
         if len(row) != len(params.trait_names):
             raise new_error("Params trait_edges rows must match number of traits.")
+    if len(params.outlier_pis) != len(params.trait_names):
+        raise new_error("Params outlier_pis must have one entry per trait.")
+    if params.outlier_kappa < 1.0:
+        raise new_error("Params outlier_kappa must be >= 1.0.")
+    for value in params.outlier_pis:
+        if value < 0.0 or value >= 1.0:
+            raise new_error("Params outlier_pis must be in [0, 1).")
     mask = endophenotype_mask(config)
     for i_trait, row in enumerate(mask):
         for i_endo, allowed in enumerate(row):

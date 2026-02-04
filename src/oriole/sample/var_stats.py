@@ -29,6 +29,7 @@ class VarStats:
         self.t_sums = np.zeros((n_data_points, n_traits), dtype=float)
         self.t2_sums = np.zeros((n_data_points, n_traits), dtype=float)
         self.t_t_sums = np.zeros((n_data_points, n_traits, n_traits), dtype=float)
+        self.z_sums = np.zeros((n_data_points, n_traits), dtype=float)
 
     def reset(self) -> None:
         self.n = 0
@@ -38,6 +39,7 @@ class VarStats:
         self.t_sums.fill(0.0)
         self.t2_sums.fill(0.0)
         self.t_t_sums.fill(0.0)
+        self.z_sums.fill(0.0)
 
     def add(self, vars: Vars) -> None:
         self.n += 1
@@ -49,9 +51,15 @@ class VarStats:
         self.t_sums += ts
         self.t2_sums += ts**2
         self.t_t_sums += ts[:, :, None] * ts[:, None, :]
+        self.z_sums += vars.zs
 
     def compute_new_params(
-        self, weights: Weights, mask: np.ndarray, parent_mask: np.ndarray
+        self,
+        weights: Weights,
+        mask: np.ndarray,
+        parent_mask: np.ndarray,
+        outlier_kappa: float,
+        outlier_pis: list[float],
     ) -> Params:
         meta = self.meta
         n_f = float(self.n)
@@ -72,6 +80,7 @@ class VarStats:
         mean_e_t = self.e_t_sums / n_f
         mean_t_t = self.t_t_sums / n_f
         mean_t2 = self.t2_sums / n_f
+        mean_z = self.z_sums / n_f
         ee_sum = (weights_arr[:, None, None] * mean_ee).sum(axis=0)
         te_sum = (weights_arr[:, None, None] * mean_e_t).sum(axis=0)
         tt_sum = (weights_arr[:, None, None] * mean_t_t).sum(axis=0)
@@ -82,6 +91,8 @@ class VarStats:
         betas = np.zeros((n_traits, n_endos), dtype=float)
         trait_edges = np.zeros((n_traits, n_traits), dtype=float)
         sigma2 = np.zeros(n_traits, dtype=float)
+        kappa2 = outlier_kappa ** 2
+        use_outliers = kappa2 > 1.0 and any(value > 0.0 for value in outlier_pis)
         for i_trait in range(n_traits):
             active_endos = [i for i, allowed in enumerate(mask[i_trait]) if allowed]
             parents = [i for i, allowed in enumerate(parent_mask[i_trait]) if allowed]
@@ -93,18 +104,47 @@ class VarStats:
             n_pred = n_endos_active + n_parents
             zz = np.zeros((n_pred, n_pred), dtype=float)
             tz = np.zeros(n_pred, dtype=float)
-            if active_endos:
-                zz[:n_endos_active, :n_endos_active] = ee_sum[
-                    np.ix_(active_endos, active_endos)
-                ]
-                tz[:n_endos_active] = te_sum[i_trait, active_endos]
-            if parents:
-                zz[n_endos_active:, n_endos_active:] = tt_sum[np.ix_(parents, parents)]
-                tz[n_endos_active:] = tt_sum[i_trait, parents]
+            if use_outliers:
+                alpha = (1.0 - mean_z[:, i_trait]) + (mean_z[:, i_trait] / kappa2)
+                weights_trait = weights_arr * alpha
                 if active_endos:
-                    te_block = te_sum[parents][:, active_endos]
-                    zz[n_endos_active:, :n_endos_active] = te_block
-                    zz[:n_endos_active, n_endos_active:] = te_block.T
+                    ee_block = mean_ee[:, active_endos][:, :, active_endos]
+                    zz[:n_endos_active, :n_endos_active] = (
+                        weights_trait[:, None, None] * ee_block
+                    ).sum(axis=0)
+                    tz[:n_endos_active] = (
+                        weights_trait[:, None] * mean_e_t[:, i_trait, active_endos]
+                    ).sum(axis=0)
+                if parents:
+                    tt_block = mean_t_t[:, parents][:, :, parents]
+                    zz[n_endos_active:, n_endos_active:] = (
+                        weights_trait[:, None, None] * tt_block
+                    ).sum(axis=0)
+                    tz[n_endos_active:] = (
+                        weights_trait[:, None] * mean_t_t[:, i_trait, parents]
+                    ).sum(axis=0)
+                    if active_endos:
+                        te_block = (
+                            weights_trait[:, None, None]
+                            * mean_e_t[:, parents][:, :, active_endos]
+                        ).sum(axis=0)
+                        zz[n_endos_active:, :n_endos_active] = te_block
+                        zz[:n_endos_active, n_endos_active:] = te_block.T
+                t2_sum_i = (weights_trait * mean_t2[:, i_trait]).sum(axis=0)
+            else:
+                if active_endos:
+                    zz[:n_endos_active, :n_endos_active] = ee_sum[
+                        np.ix_(active_endos, active_endos)
+                    ]
+                    tz[:n_endos_active] = te_sum[i_trait, active_endos]
+                if parents:
+                    zz[n_endos_active:, n_endos_active:] = tt_sum[np.ix_(parents, parents)]
+                    tz[n_endos_active:] = tt_sum[i_trait, parents]
+                    if active_endos:
+                        te_block = te_sum[parents][:, active_endos]
+                        zz[n_endos_active:, :n_endos_active] = te_block
+                        zz[:n_endos_active, n_endos_active:] = te_block.T
+                t2_sum_i = t2_sum[i_trait]
 
             coeffs = np.linalg.solve(zz, tz)
             for i, k in enumerate(active_endos):
@@ -113,7 +153,7 @@ class VarStats:
                 trait_edges[i_trait, p] = coeffs[n_endos_active + i]
 
             sigma2[i_trait] = (
-                t2_sum[i_trait]
+                t2_sum_i
                 - 2.0 * float(coeffs @ tz)
                 + float(coeffs @ zz @ coeffs)
             ) / weights_sum
@@ -128,6 +168,8 @@ class VarStats:
             betas=betas.tolist(),
             sigmas=[float(value) for value in sigmas],
             trait_edges=trait_edges.tolist(),
+            outlier_kappa=outlier_kappa,
+            outlier_pis=outlier_pis,
         )
 
     def calculate_classification(self) -> SampledClassification:

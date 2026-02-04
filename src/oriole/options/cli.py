@@ -13,7 +13,7 @@ class CoreOptions:
     config_file: str
     dry: bool
     match_rust: bool
-    analytical: bool
+    inference: str
     chunk_size: int | None
     verbose: bool
 
@@ -46,6 +46,12 @@ def _build_parser() -> argparse.ArgumentParser:
         sub.add_argument("-d", "--dry", action="store_true")
         sub.add_argument("--verbose", action="store_true")
         sub.add_argument("--match-rust", action="store_true", dest="match_rust")
+        sub.add_argument(
+            "--inference",
+            choices=["auto", "analytic", "variational", "gibbs"],
+            default="auto",
+            help="Inference method: auto, analytic, variational, or gibbs.",
+        )
         sub.add_argument(
             "--gibbs",
             action="store_true",
@@ -92,7 +98,7 @@ def get_choice(argv: list[str] | None = None):
             config_file=args.conf_file,
             dry=bool(args.dry),
             match_rust=bool(args.match_rust),
-            analytical=not bool(args.gibbs),
+            inference=("gibbs" if args.gibbs else args.inference),
             chunk_size=args.chunk_size,
             verbose=bool(args.verbose),
         )

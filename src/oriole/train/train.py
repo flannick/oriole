@@ -8,11 +8,14 @@ from ..data import load_data
 from ..error import new_error
 from ..options.action import Action
 from ..options.config import Config, endophenotype_mask
+from ..options.inference import resolve_inference, build_outlier_pis
 from ..params import Params, write_params_to_file
 from ..report import Reporter
 from ..sample.trace_file import ParamTraceFileWriter
 from ..train.initial_params import estimate_initial_params
 from ..train.analytical import estimate_params_analytical
+from ..train.outliers_analytic import estimate_params_analytical_outliers
+from ..train.outliers_variational import estimate_params_variational_outliers
 from ..train.param_meta_stats import ParamMetaStats
 from ..util.threads import Threads
 
@@ -37,18 +40,19 @@ def train_or_check(
     config: Config,
     dry: bool,
     match_rust: bool = False,
-    analytical: bool = True,
+    inference: str = "auto",
     chunk_size: int | None = None,
     verbose: bool = False,
 ) -> None:
     data = load_data(config, Action.TRAIN)
+    inference_mode = resolve_inference(config, inference, data.gwas_data.meta.n_traits())
     if verbose:
         print(
             "Train config: {} traits, {} endos, {} edges, analytical={}, chunk_size={}".format(
                 data.gwas_data.meta.n_traits(),
                 len(config.endophenotypes),
                 len(config.trait_edges),
-                analytical,
+                inference_mode,
                 chunk_size or "auto",
             )
         )
@@ -57,7 +61,13 @@ def train_or_check(
     if dry:
         print("User picked dry run only, so doing nothing.")
         return
-    train(data, config, match_rust=match_rust, analytical=analytical, chunk_size=chunk_size)
+    train(
+        data,
+        config,
+        match_rust=match_rust,
+        inference=inference_mode,
+        chunk_size=chunk_size,
+    )
 
 
 def _default_chunk_size(n_traits: int, n_data_points: int) -> int:
@@ -73,7 +83,7 @@ def train(
     data,
     config: Config,
     match_rust: bool = False,
-    analytical: bool = True,
+    inference: str = "auto",
     chunk_size: int | None = None,
 ) -> None:
     n_traits = data.gwas_data.meta.n_traits()
@@ -96,23 +106,37 @@ def train(
     params = estimate_initial_params(
         data.gwas_data, config.endophenotypes, mask, match_rust=match_rust
     )
+    if config.outliers.enabled:
+        params.outlier_kappa = config.outliers.kappa
+        params.outlier_pis = build_outlier_pis(config, params.trait_names)
     print(params)
 
-    if analytical:
+    if inference in ("analytic", "variational"):
         if chunk_size is None or chunk_size <= 0:
             chunk_size = _default_chunk_size(
                 data.gwas_data.meta.n_traits(), data.gwas_data.meta.n_data_points()
             )
-        total_iters = max(1, config.train.n_iterations_per_round * max(1, config.train.n_rounds))
+        total_iters = max(1, config.train.n_rounds)
+        report_every = max(1, config.train.n_iterations_per_round)
         reporter = Reporter()
         for i_iteration in range(total_iters):
-            params = estimate_params_analytical(data, params, chunk_size, mask, parent_mask)
+            if config.outliers.enabled:
+                if inference == "analytic":
+                    params = estimate_params_analytical_outliers(
+                        data, params, chunk_size, mask, parent_mask
+                    )
+                else:
+                    params = estimate_params_variational_outliers(
+                        data, params, chunk_size, mask, parent_mask
+                    )
+            else:
+                params = estimate_params_analytical(data, params, chunk_size, mask, parent_mask)
             if params_trace_writer is not None:
                 params_trace_writer.write(params)
-            if (i_iteration + 1) % max(1, config.train.n_iterations_per_round) == 0:
+            if (i_iteration + 1) % report_every == 0 or i_iteration == total_iters - 1:
                 reporter.report(
                     SummaryStub(params),
-                    i_iteration // max(1, config.train.n_iterations_per_round),
+                    i_iteration // report_every,
                     (i_iteration + 1),
                     0,
                 )

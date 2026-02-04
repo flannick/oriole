@@ -736,6 +736,413 @@ Alternatively, one can update the trait nodes $T_i$ one-at-a-time using
 their Markov blanket in the trait DAG; the resulting full conditionals
 are univariate normal.
 
+\section{Control for outlier traits}
+
+A practical failure mode of the base model is that a single trait with an
+extremely strong observed association can force the posterior endophenotype
+$\mathbf{E}^j$ to be large, because the model has no other mechanism to explain
+a highly unlikely observation. In applications where we seek variants that
+match a coherent multi-trait pattern (rather than variants driven by a single
+trait), this behavior is undesirable.
+
+We address this by introducing, for each trait $i$ and variant $j$, a binary
+indicator $Z_i^j \in \{0,1\}$ which controls an inflation of the residual
+variance in the trait layer. Intuitively, when $Z_i^j = 1$ trait $i$ is treated
+as an ``outlier'' for variant $j$ and is given less influence on the inferred
+endophenotypes.
+
+\subsection*{Model definition}
+
+Let $\kappa > 1$ denote a variance inflation factor. Let $\pi_i \in (0,1)$ be
+the prior probability that trait $i$ is an outlier for a randomly chosen
+variant. (In many applications we will impose $\pi_i \equiv \pi$ for all traits
+for stability and interpretability.)
+
+For each variant $j$ and trait $i$, define
+\[
+Z_i^j \sim \mathrm{Bernoulli}(\pi_i),
+\qquad
+c(Z_i^j) =
+\begin{cases}
+1, & Z_i^j = 0 \\
+\kappa^2, & Z_i^j = 1.
+\end{cases}
+\]
+We extend the trait layer to
+\[
+T_i^j \mid \mathbf{E}^j,\mathbf{T}_{\mathrm{Pa}(i)}^j,Z_i^j
+\sim
+{\mathcal N}\left(\mathbf{b}_i^T\mathbf{E}^j + \sum_{p\in\mathrm{Pa}(i)}\alpha_{ip}T_p^j,\ \sigma_i^2\,c(Z_i^j)\right),
+\]
+and retain the observation model
+\[
+O_i^j \mid T_i^j \sim {\mathcal N}\left(T_i^j,\ (s_i^j)^2\right).
+\]
+When $Z_i^j = 1$, the increased variance $\kappa^2\sigma_i^2$ reduces the
+leverage of trait $i$ on $\mathbf{E}^j$ and on the fitted loadings, providing a
+mechanism to ``soak up'' trait-specific signals that do not align with the
+multi-trait pattern.
+
+It is convenient to write this in matrix form (as in the trait-edge extension).
+Let $\mathbf{A}$ be the matrix of trait-edge coefficients, and let
+$\mathbf{L} = \mathbf{I} - \mathbf{A}$. For each variant $j$, define the
+diagonal matrix
+\[
+\mathbf{D}^j(\mathbf{Z}^j) = \mathrm{diag}\left(\sigma_1^2 c(Z_1^j),\ldots,\sigma_q^2 c(Z_q^j)\right).
+\]
+Conditional on $\mathbf{Z}^j = (Z_1^j,\ldots,Z_q^j)$, the trait layer becomes
+\[
+\mathbf{L}\mathbf{T}^j = \mathbf{B}\mathbf{E}^j + \boldsymbol{\varepsilon}^j,
+\qquad
+\boldsymbol{\varepsilon}^j \sim {\mathcal N}\left(\mathbf{0},\mathbf{D}^j(\mathbf{Z}^j)\right).
+\]
+Therefore
+\begin{eqnarray*}
+\mathbf{T}^j \mid \mathbf{E}^j,\mathbf{Z}^j & \sim &
+{\mathcal N}\left(\mathbf{M}\mathbf{E}^j,\ \mathbf{\Sigma}_T^j(\mathbf{Z}^j)\right) \\
+\mathbf{M} & = & \mathbf{L}^{-1}\mathbf{B} \\
+\mathbf{\Sigma}_T^j(\mathbf{Z}^j) & = &
+\mathbf{L}^{-1}\mathbf{D}^j(\mathbf{Z}^j)\left(\mathbf{L}^{-1}\right)^T.
+\end{eqnarray*}
+Let $\mathbf{S}^j = \mathrm{diag}\left((s_1^j)^2,\ldots,(s_q^j)^2\right)$.
+Collapsing over $\mathbf{T}^j$ yields
+\[
+\mathbf{O}^j \mid \mathbf{E}^j,\mathbf{Z}^j \sim
+{\mathcal N}\left(\mathbf{M}\mathbf{E}^j,\ \mathbf{V}^j(\mathbf{Z}^j)\right),
+\qquad
+\mathbf{V}^j(\mathbf{Z}^j) = \mathbf{\Sigma}_T^j(\mathbf{Z}^j) + \mathbf{S}^j.
+\]
+
+\begin{figure}[ht]
+\begin{center}
+\begin{tikzpicture}[>=stealth',auto, font=\scriptsize]
+  \tikzset{
+    blank/.style={text centered},
+    circ/.style={circle, draw=black, minimum height=.35in, text centered}
+  }
+
+  \node[circ] (to1) {$O_1$};
+  \node[circ] (to2) [right=of to1] {$O_2$};
+  \node[blank] (tospace) [right=of to2] {$\ldots$};
+  \node[circ] (ton) [right=of tospace] {$O_q$};
+
+  \node[circ] (t1) [below=of to1] {$T_1$};
+  \node[circ] (t2) [below=of to2] {$T_2$};
+  \node[blank] (tspace) [right=of t2] {$\ldots$};
+  \node[circ] (tn) [below=of ton] {$T_q$};
+
+  \node[circ] (z1) [left=of t1] {$Z_1$};
+  \node[circ] (z2) [left=of t2] {$Z_2$};
+  \node[circ] (zn) [left=of tn] {$Z_q$};
+
+  \node[circ] (e1) [below=of t2] {$E_1$};
+  \node[blank] (espace) [right=of e1] {$\ldots$};
+  \node[circ] (ek) [right=of espace] {$E_K$};
+
+  \path[->] (t1) edge (to1);
+  \path[->] (t2) edge (to2);
+  \path[->] (tn) edge (ton);
+
+  \path[->] (e1) edge (t1);
+  \path[->] (e1) edge (t2);
+  \path[->] (ek) edge (tn);
+
+  \path[dashed,->] (z1) edge (t1);
+  \path[dashed,->] (z2) edge (t2);
+  \path[dashed,->] (zn) edge (tn);
+
+\end{tikzpicture}
+\end{center}
+\caption{Adding per-trait outlier indicators $Z_i$ that inflate the residual variance in the trait layer by a factor $\kappa^2$ when $Z_i=1$}
+\label{fig:variantbn_outliers}
+\end{figure}
+
+\subsection*{Estimation: analytic (exact) E-step by enumerating $\mathbf{Z}^j$}
+
+Conditional on $\mathbf{Z}^j$, the model remains linear-Gaussian, so the
+posterior of $\mathbf{E}^j$ given $\mathbf{o}^j$ and $\mathbf{Z}^j$ is
+multivariate normal:
+\begin{eqnarray*}
+\mathbf{E}^j \mid \mathbf{o}^j,\mathbf{Z}^j
+& \sim & {\mathcal N}\left(\mathbf{m}_E^j(\mathbf{Z}^j),\ \mathbf{V}_E^j(\mathbf{Z}^j)\right) \\
+\mathbf{V}_E^j(\mathbf{Z}^j)
+& = &
+\left(\mathbf{\Sigma}_E^{-1} + \mathbf{M}^T\left(\mathbf{V}^j(\mathbf{Z}^j)\right)^{-1}\mathbf{M}\right)^{-1} \\
+\mathbf{m}_E^j(\mathbf{Z}^j)
+& = &
+\mathbf{V}_E^j(\mathbf{Z}^j)\left(\mathbf{\Sigma}_E^{-1}\mathbf{\mu}
++ \mathbf{M}^T\left(\mathbf{V}^j(\mathbf{Z}^j)\right)^{-1}\mathbf{o}^j\right).
+\end{eqnarray*}
+Similarly, the posterior mean of $\mathbf{T}^j$ conditional on $\mathbf{Z}^j$
+is
+\[
+\mathrm{E}\left[\mathbf{T}^j \mid \mathbf{o}^j,\mathbf{Z}^j\right]
+=
+\mathbf{M}\mathbf{m}_E^j(\mathbf{Z}^j)
++
+\mathbf{\Sigma}_T^j(\mathbf{Z}^j)\left(\mathbf{V}^j(\mathbf{Z}^j)\right)^{-1}
+\left(\mathbf{o}^j - \mathbf{M}\mathbf{m}_E^j(\mathbf{Z}^j)\right).
+\]
+
+To obtain the unconditional posterior, we marginalize over
+$\mathbf{Z}^j \in \{0,1\}^q$:
+\[
+\Pr(\mathbf{Z}^j=\mathbf{z}) = \prod_{i=1}^q \pi_i^{z_i}(1-\pi_i)^{1-z_i},
+\qquad
+\Pr(\mathbf{Z}^j=\mathbf{z}\mid \mathbf{o}^j)
+\propto
+\Pr(\mathbf{Z}^j=\mathbf{z})\,\Pr(\mathbf{o}^j\mid \mathbf{Z}^j=\mathbf{z}).
+\]
+Since $\mathbf{o}^j\mid \mathbf{Z}^j$ is Gaussian after integrating out
+$\mathbf{E}^j$, $\Pr(\mathbf{o}^j\mid \mathbf{Z}^j=\mathbf{z})$ can be computed
+in closed form, and the posterior over $\mathbf{Z}^j$ can be normalized by
+summing over all $2^q$ configurations.
+
+Let $\gamma^j(\mathbf{z}) = \Pr(\mathbf{Z}^j=\mathbf{z}\mid \mathbf{o}^j)$.
+Then posterior expectations are mixture averages, for example
+\[
+\mathrm{E}\left[\mathbf{E}^j\mid \mathbf{o}^j\right]
+=
+\sum_{\mathbf{z}} \gamma^j(\mathbf{z})\,\mathbf{m}_E^j(\mathbf{z}),
+\qquad
+\mathrm{E}\left[\mathbf{E}^j(\mathbf{E}^j)^T\mid \mathbf{o}^j\right]
+=
+\sum_{\mathbf{z}} \gamma^j(\mathbf{z})
+\left(\mathbf{V}_E^j(\mathbf{z}) + \mathbf{m}_E^j(\mathbf{z})\mathbf{m}_E^j(\mathbf{z})^T\right).
+\]
+The outlier responsibility for trait $i$ at variant $j$ is
+\[
+\phi_i^j \equiv \Pr(Z_i^j=1\mid \mathbf{o}^j)
+=
+\sum_{\mathbf{z}} \gamma^j(\mathbf{z})\,z_i.
+\]
+
+For EM training with fixed $(\kappa,\pi_i)$, the M-step updates for the trait
+coefficients become weighted least squares. Define the regression residual
+\[
+r_i^j = T_i^j - \mathbf{b}_i^T\mathbf{E}^j - \sum_{p\in\mathrm{Pa}(i)} \alpha_{ip}T_p^j.
+\]
+Then, using the expected complete-data log-likelihood, the variance update is
+\[
+\sigma_i^2
+=
+\frac{1}{\sum_j w_j}
+\sum_j w_j\,\mathrm{E}\left[\frac{\left(r_i^j\right)^2}{c(Z_i^j)}\ \Big|\ \mathbf{\hat{O}}\right],
+\]
+and the coefficient updates for $(\mathbf{b}_i,\{\alpha_{ip}\})$ correspond to
+solving the normal equations formed from the weighted cross-products
+$\mathrm{E}\left[\left(\mathbf{E}^j,\mathbf{T}_{\mathrm{Pa}(i)}^j\right)
+\left(\mathbf{E}^j,\mathbf{T}_{\mathrm{Pa}(i)}^j\right)^T/c(Z_i^j)\right]$ and
+$\mathrm{E}\left[T_i^j\left(\mathbf{E}^j,\mathbf{T}_{\mathrm{Pa}(i)}^j\right)^T/c(Z_i^j)\right]$.
+
+This analytic approach is exact, but its cost grows as $O(2^q)$ per variant and
+is only practical for small numbers of traits.
+
+\subsection*{Estimation: variational approximation}
+
+For larger $q$, we can approximate the posterior with a mean-field family
+\[
+q(\mathbf{E}^j,\mathbf{T}^j,\mathbf{Z}^j)
+=
+q(\mathbf{E}^j,\mathbf{T}^j)\prod_{i=1}^q q(Z_i^j),
+\qquad
+q(Z_i^j=1)=\phi_i^j.
+\]
+Define
+\[
+\alpha_i^j \equiv \mathrm{E}_q\left[\frac{1}{c(Z_i^j)}\right]
+=
+(1-\phi_i^j) + \frac{\phi_i^j}{\kappa^2}.
+\]
+A standard coordinate ascent update yields $q(\mathbf{E}^j,\mathbf{T}^j)$ as a
+Gaussian distribution obtained by replacing the diagonal residual covariance
+$\mathbf{D}^j(\mathbf{Z}^j)$ with an effective covariance
+\[
+\widetilde{\mathbf{D}}^j \equiv \mathrm{diag}\left(\frac{\sigma_1^2}{\alpha_1^j},\ldots,\frac{\sigma_q^2}{\alpha_q^j}\right),
+\qquad
+\widetilde{\mathbf{\Sigma}}_T^j
+=
+\mathbf{L}^{-1}\widetilde{\mathbf{D}}^j\left(\mathbf{L}^{-1}\right)^T,
+\qquad
+\widetilde{\mathbf{V}}^j
+=
+\widetilde{\mathbf{\Sigma}}_T^j + \mathbf{S}^j.
+\]
+Thus the approximate posterior of $\mathbf{E}^j$ is
+\begin{eqnarray*}
+q(\mathbf{E}^j) & = & {\mathcal N}\left(\widetilde{\mathbf{m}}_E^j,\ \widetilde{\mathbf{V}}_E^j\right) \\
+\widetilde{\mathbf{V}}_E^j
+& = &
+\left(\mathbf{\Sigma}_E^{-1} + \mathbf{M}^T\left(\widetilde{\mathbf{V}}^j\right)^{-1}\mathbf{M}\right)^{-1} \\
+\widetilde{\mathbf{m}}_E^j
+& = &
+\widetilde{\mathbf{V}}_E^j\left(\mathbf{\Sigma}_E^{-1}\mathbf{\mu}
++ \mathbf{M}^T\left(\widetilde{\mathbf{V}}^j\right)^{-1}\mathbf{o}^j\right).
+\end{eqnarray*}
+
+The Bernoulli factors update via the log-odds
+\[
+\log\frac{\phi_i^j}{1-\phi_i^j}
+=
+\log\frac{\pi_i}{1-\pi_i}
+-
+\frac{1}{2}\log\kappa^2
++
+\frac{1}{2}\left(1-\frac{1}{\kappa^2}\right)
+\frac{\mathrm{E}_q\left[\left(\epsilon_i^j\right)^2\right]}{\sigma_i^2},
+\]
+where $\boldsymbol{\epsilon}^j = \mathbf{L}\mathbf{T}^j - \mathbf{B}\mathbf{E}^j$.
+Because $\boldsymbol{\epsilon}^j$ is linear in $(\mathbf{T}^j,\mathbf{E}^j)$ and
+$q(\mathbf{T}^j,\mathbf{E}^j)$ is Gaussian, the moment
+$\mathrm{E}_q[(\epsilon_i^j)^2]$ can be computed from the posterior mean and
+covariance. Iterating these updates yields a scalable approximation which avoids
+the $2^q$ enumeration, at the cost of a mean-field approximation that typically
+underestimates posterior uncertainty.
+
+For EM training, the M-step uses the same weighted least squares form as above,
+with the replacement $\mathrm{E}[1/c(Z_i^j)] \approx \alpha_i^j$ and
+$\mathrm{E}[(r_i^j)^2/c(Z_i^j)] \approx \alpha_i^j\,\mathrm{E}_q[(r_i^j)^2]$.
+
+\subsection*{Estimation: Gibbs sampling}
+
+Finally, we can sample from the posterior by extending the existing Gibbs
+sampler with updates for $\mathbf{Z}^j$.
+
+Given $(\mathbf{E}^j,\mathbf{T}^j)$, each $Z_i^j$ is conditionally independent
+with
+\[
+\Pr(Z_i^j=1\mid \mathbf{E}^j,\mathbf{T}^j,\mathbf{o}^j)
+=
+\frac{\pi_i\,{\mathcal N}(\epsilon_i^j;0,\kappa^2\sigma_i^2)}
+{\pi_i\,{\mathcal N}(\epsilon_i^j;0,\kappa^2\sigma_i^2) + (1-\pi_i)\,{\mathcal N}(\epsilon_i^j;0,\sigma_i^2)},
+\]
+where $\boldsymbol{\epsilon}^j = \mathbf{L}\mathbf{T}^j - \mathbf{B}\mathbf{E}^j$.
+Thus $Z_i^j$ can be drawn by a Bernoulli step using the above probability.
+
+Conditional on $\mathbf{Z}^j$, the updates for $\mathbf{E}^j$ and $\mathbf{T}^j$
+remain Gaussian. For example,
+\[
+\mathbf{E}^j \mid \mathbf{T}^j,\mathbf{Z}^j \sim
+{\mathcal N}\left(\mathbf{m}_{E\mid T}^j,\ \mathbf{V}_{E\mid T}^j\right),
+\qquad
+\mathbf{V}_{E\mid T}^j =
+\left(\mathbf{\Sigma}_E^{-1} + \mathbf{B}^T\left(\mathbf{D}^j(\mathbf{Z}^j)\right)^{-1}\mathbf{B}\right)^{-1},
+\]
+and $\mathbf{m}_{E\mid T}^j$ follows by conjugacy using $\mathbf{L}\mathbf{T}^j$
+as the Gaussian observation for $\mathbf{B}\mathbf{E}^j$.
+
+The conditional for each $T_i^j$ can be updated as in the trait-edge Gibbs
+scheme, except that each occurrence of $\sigma_i^2$ is replaced by
+$\sigma_i^2 c(Z_i^j)$, and child contributions use the corresponding child
+variance $\sigma_c^2 c(Z_c^j)$.
+
+Gibbs sampling is asymptotically exact and can handle large numbers of traits
+and complex trait graphs, but it can be slower and requires burn-in and
+convergence diagnostics. In contrast, analytic enumeration is exact but only
+feasible for small $q$, and the variational approximation is scalable and fast
+but approximate. When $q$ is small, the analytic approach dominates. For moderate
+or large $q$ without requiring exact posterior uncertainty, the variational
+approximation is usually preferred. Gibbs sampling is most appropriate when
+exactness is important or when the variational approximation is unstable, at
+the cost of runtime.
+
+\section{Determining $\kappa$ and $\pi$}
+
+The hyperparameters $\kappa$ and $\pi_i$ control how aggressively the model
+downweights trait-specific outliers. These parameters are not reliably
+identified from positives alone, and in many applications we choose them to
+optimize separation between a curated positive set and a large background set of
+variants. We therefore recommend selecting $(\kappa,\pi)$ by cross-validation
+with an objective that emphasizes the extreme tail of the ranked list, which is
+the relevant regime for genome-wide screening.
+
+\subsection*{Scoring function}
+
+For each variant $j$, inference under a fixed $(\kappa,\pi)$ yields a posterior
+mean and covariance for $\mathbf{E}^j$, denoted $(\mathbf{m}_E^j,\mathbf{V}_E^j)$
+(using analytic, variational, or Gibbs inference). We define an endophenotype
+evidence score
+\[
+S^j \equiv \left(\mathbf{m}_E^j\right)^T\left(\mathbf{V}_E^j\right)^{-1}\mathbf{m}_E^j,
+\]
+which is the squared Mahalanobis norm of the posterior mean. In the
+single-endophenotype case this reduces to the squared posterior $z$-score
+$(m_E^j / \sqrt{V_E^j})^2$. This score increases when the data support a coherent
+endophenotype signal with small posterior uncertainty, and it decreases when the
+signal is explained instead by one or more outlier indicators $Z_i^j$.
+
+\subsection*{Composite cross-validation metric}
+
+Let $\mathcal{P}$ denote the curated positive set. Let $\mathcal{B}$ denote a
+large background set (e.g., random variants from the genome-wide set excluding
+$\mathcal{P}$). Optionally, let $\mathcal{H}$ denote a ``hard negative'' set
+(e.g., variants significant for one trait but not others).
+
+For a target background false positive rate $\alpha$ (e.g., $\alpha=10^{-3}$ or
+$10^{-4}$), define the threshold $t_\alpha$ as the $(1-\alpha)$ empirical
+quantile of $S^j$ over $\mathcal{B}$. Define
+\[
+\mathrm{TPR}_\alpha = \frac{1}{|\mathcal{P}|}\sum_{j\in\mathcal{P}} \mathbf{1}\{S^j \ge t_\alpha\},
+\qquad
+\mathrm{FPR}_{\alpha,\mathrm{hard}} = \frac{1}{|\mathcal{H}|}\sum_{j\in\mathcal{H}} \mathbf{1}\{S^j \ge t_\alpha\}.
+\]
+We propose the composite metric
+\[
+\mathrm{Score}(\kappa,\pi)
+=
+\frac{1}{|\mathcal{A}|}\sum_{\alpha\in\mathcal{A}}
+\left(\mathrm{TPR}_\alpha - \lambda\,\mathrm{FPR}_{\alpha,\mathrm{hard}}\right),
+\]
+where $\mathcal{A}$ is a small set of tail operating points (e.g.,
+$\{10^{-3},10^{-4}\}$) and $\lambda \ge 0$ is a penalty weight (e.g.,
+$\lambda=1$). If no hard-negative set is available, we set $\lambda=0$.
+
+This metric directly targets performance in the extreme tail while guarding
+against trivial improvements that simply inflate scores for many single-trait
+signals.
+
+\subsection*{Cross-validation procedure}
+
+We recommend selecting $(\kappa,\pi)$ over a grid (typically log-spaced for $\pi$
+and a small set of $\kappa$ values). Let $\mathcal{P}$ be split into $K$ folds
+$\mathcal{P}_1,\ldots,\mathcal{P}_K$. For each grid point $(\kappa,\pi)$, we
+repeat:
+
+\begin{enumerate}
+\item For each fold $k$:
+  \begin{enumerate}
+  \item Train model parameters $\theta$ on $\mathcal{P}\setminus\mathcal{P}_k$
+        using EM (with the chosen inference method) holding $(\kappa,\pi)$ fixed.
+  \item Compute scores $S^j$ for $j\in\mathcal{P}_k$, and for sampled sets from
+        $\mathcal{B}$ (and $\mathcal{H}$, if used).
+  \item Compute the composite metric for fold $k$.
+  \end{enumerate}
+\item Average the fold metrics to obtain $\mathrm{Score}(\kappa,\pi)$.
+\end{enumerate}
+Select the grid point with the largest score, then retrain $\theta$ on the full
+positive set $\mathcal{P}$ using the selected $(\kappa,\pi)$.
+
+\subsection*{Fast abbreviated option}
+
+The procedure above is statistically clean but can be expensive because EM is
+nested inside the cross-validation loop. A faster approximation is:
+
+\begin{enumerate}
+\item Train $\theta$ once on all positives using a reasonable default
+      $(\kappa,\pi)$ (or with $\pi=0$ as a baseline).
+\item Holding $\theta$ fixed, choose $(\kappa,\pi)$ by cross-validation using
+      only the inference step and the scoring metric above.
+\item Optionally run a final EM training pass using the selected $(\kappa,\pi)$.
+\end{enumerate}
+
+This abbreviated procedure is appropriate when the fitted structural parameters
+$\theta$ are relatively stable across plausible choices of $(\kappa,\pi)$, which
+is often the case when $\kappa$ and $\pi$ primarily modulate how outliers are
+downweighted rather than changing the coherent multi-trait signal.
+
+
+
+
 \end{document}
 
 

@@ -78,6 +78,8 @@ class Params:
     betas: list[list[float]]
     sigmas: list[float]
     trait_edges: list[list[float]]
+    outlier_kappa: float
+    outlier_pis: list[float]
 
     @classmethod
     def from_vec(
@@ -114,6 +116,8 @@ class Params:
             trait_edges=[
                 [0.0 for _ in range(n_traits)] for _ in range(n_traits)
             ],
+            outlier_kappa=1.0,
+            outlier_pis=[0.0 for _ in range(n_traits)],
         )
 
     def n_traits(self) -> int:
@@ -137,6 +141,8 @@ class Params:
             betas=betas,
             sigmas=sigmas,
             trait_edges=trait_edges,
+            outlier_kappa=self.outlier_kappa,
+            outlier_pis=[self.outlier_pis[i_col] for i_col in is_cols],
         )
 
     def plus_overwrite(self, overwrite: ParamsOverride) -> "Params":
@@ -176,6 +182,8 @@ class Params:
             betas=self.betas,
             sigmas=self.sigmas,
             trait_edges=self.trait_edges,
+            outlier_kappa=self.outlier_kappa,
+            outlier_pis=self.outlier_pis,
         )
 
     def normalized_with_mu_one(self) -> "Params":
@@ -197,6 +205,8 @@ class Params:
             betas=betas,
             sigmas=self.sigmas,
             trait_edges=self.trait_edges,
+            outlier_kappa=self.outlier_kappa,
+            outlier_pis=self.outlier_pis,
         )
 
     def __getitem__(self, index: ParamIndex) -> float:
@@ -250,6 +260,9 @@ def read_params_from_file(path: str) -> Params:
         for row in trait_edges:
             if len(row) != len(trait_names):
                 raise new_error("Params trait_edges rows must match number of traits.")
+        outlier_pis = data.get("outlier_pis", [0.0 for _ in trait_names])
+        if len(outlier_pis) != len(trait_names):
+            raise new_error("Params outlier_pis must have one entry per trait.")
         return Params(
             trait_names=trait_names,
             endo_names=endo_names,
@@ -258,6 +271,8 @@ def read_params_from_file(path: str) -> Params:
             betas=betas,
             sigmas=sigmas,
             trait_edges=trait_edges,
+            outlier_kappa=data.get("outlier_kappa", 1.0),
+            outlier_pis=outlier_pis,
         )
     betas = [[beta] for beta in data["betas"]]
     if len(betas) != len(data["trait_names"]):
@@ -271,6 +286,8 @@ def read_params_from_file(path: str) -> Params:
         betas=betas,
         sigmas=data["sigmas"],
         trait_edges=[[0.0 for _ in data["trait_names"]] for _ in data["trait_names"]],
+        outlier_kappa=data.get("outlier_kappa", 1.0),
+        outlier_pis=data.get("outlier_pis", [0.0 for _ in data["trait_names"]]),
     )
 
 
@@ -283,6 +300,8 @@ def write_params_to_file(params: Params, output_file: str) -> None:
         "betas": params.betas,
         "sigmas": params.sigmas,
         "trait_edges": params.trait_edges,
+        "outlier_kappa": params.outlier_kappa,
+        "outlier_pis": params.outlier_pis,
     }
     try:
         with open(output_file, "w", encoding="utf-8") as handle:

@@ -83,4 +83,6 @@ def estimate_initial_params(
         betas=betas,
         sigmas=sigmas,
         trait_edges=[[0.0 for _ in range(n_traits)] for _ in range(n_traits)],
+        outlier_kappa=1.0,
+        outlier_pis=[0.0 for _ in range(n_traits)],
     )

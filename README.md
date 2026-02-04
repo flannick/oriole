@@ -271,8 +271,12 @@ If no weight is provided, it defaults to 1.0.
 
 ## Flags
 
+- `--inference {auto,analytic,variational,gibbs}`
+  Select the inference method. Default is `auto` (analytic unless outliers are enabled
+  and the model is large, in which case it uses variational).
+
 - `--gibbs`
-  Use Gibbs sampling instead of analytical inference. Supported for classify and train.
+  Shortcut for `--inference gibbs`.
 
 - `--match-rust`
   Preserves a legacy initialization behavior (uses betas to estimate SE statistics).
@@ -304,6 +308,10 @@ The repo includes small test data under `tests/data/`:
 - `trait_edges_ids.txt`
 - `trait_edges_params.json`
 - `trait_edges_config_classify.toml`
+- `outliers_config_train.toml`
+- `outliers_config_classify.toml`
+- `outliers_trait_edges_config_train.toml`
+- `outliers_trait_edges_config_classify.toml`
 
 ---
 
@@ -322,13 +330,13 @@ pytest -q
 ### Train
 
 ```bash
-oriole train -f config.toml [--gibbs] [--chunk-size N] [--match-rust]
+oriole train -f config.toml [--inference auto|analytic|variational|gibbs] [--gibbs] [--chunk-size N] [--match-rust]
 ```
 
 ### Classify
 
 ```bash
-oriole classify -f config.toml [--gibbs] [--chunk-size N]
+oriole classify -f config.toml [--inference auto|analytic|variational|gibbs] [--gibbs] [--chunk-size N]
 ```
 
 ---
@@ -369,5 +377,37 @@ The corresponding coefficients live in the `trait_edges` matrix in the params JS
 When `[[trait_edges]]` are present, training estimates the coefficients for the
 allowed edges alongside the endophenotype loadings. Edges not listed in the config
 remain fixed at 0.
+
+### Outlier trait indicators (variance inflation)
+
+ORIOLE can add a binary indicator `Z_i^j` for each trait `i` and variant `j` that
+inflates the trait-layer residual variance by `kappa^2` when the trait behaves as an
+outlier. This downweights isolated trait spikes that do not match the endophenotype
+pattern.
+
+To enable, add an `[outliers]` block to your config:
+
+```toml
+[outliers]
+enabled = true
+kappa = 4.0
+pi = 0.01
+max_enum_traits = 12
+method = "auto" # auto, analytic, variational, or gibbs
+# Optional per-trait overrides:
+# pi_by_trait = { fi = 0.01, bmi = 0.02 }
+```
+
+Notes:
+- `kappa` must be >= 1.0 (values > 1.0 are required for any effect).
+- `pi` is the prior probability a trait is an outlier for a given variant.
+- `pi_by_trait` overrides `pi` for named traits.
+- `max_enum_traits` controls when analytic enumeration is allowed.
+
+Inference controls:
+- Use `--inference` to force `analytic`, `variational`, or `gibbs`.
+- `auto` chooses analytic enumeration if there are no trait edges and
+  the number of traits is <= `max_enum_traits`; otherwise it uses variational.
+- `--gibbs` is a shortcut for `--inference gibbs`.
 
 ---

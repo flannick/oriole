@@ -55,6 +55,7 @@ class ParamMetaStats:
         n_traits = len(trait_names)
         self.trait_names = trait_names
         self.endo_names = endo_names
+        self.base_params = params0[0]
         self.stats = []
         for i_chain in range(n_chains_used):
             chain_stats = []
@@ -105,7 +106,18 @@ class ParamMetaStats:
             inter_chain_vars.append(inter_chain_var)
             inter_intra_ratios.append(inter_intra_ratio)
             relative_errors.append(relative_error)
-        params = Params.from_vec(param_values, self.trait_names, self.endo_names)
+        params_base = Params.from_vec(param_values, self.trait_names, self.endo_names)
+        params = Params(
+            trait_names=params_base.trait_names,
+            endo_names=params_base.endo_names,
+            mus=params_base.mus,
+            taus=params_base.taus,
+            betas=params_base.betas,
+            sigmas=params_base.sigmas,
+            trait_edges=self.base_params.trait_edges,
+            outlier_kappa=self.base_params.outlier_kappa,
+            outlier_pis=self.base_params.outlier_pis,
+        )
         inter_intra_ratios_mean = sum(inter_intra_ratios) / n_params
         relative_errors_mean = sum(relative_errors) / n_params
         return Summary(

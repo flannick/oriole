@@ -48,9 +48,13 @@ class Sampler:
                 vars.es[i_data_point, int(i_trait)] = e
                 if e_tracer is not None:
                     e_tracer.trace_e(vars.es[i_data_point])
-            else:
+            elif var_type == "t":
                 vars.ts[i_data_point, i_trait] = self._gibbs.draw_t(
                     data, vars, params, i_data_point, i_trait, t_pinned
+                )
+            else:
+                vars.zs[i_data_point, i_trait] = self._gibbs.draw_z(
+                    vars, params, i_data_point, i_trait
                 )
         self._var_stats.add(vars)
 

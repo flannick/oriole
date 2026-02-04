@@ -15,5 +15,7 @@ def scale_sigmas(config: ScaleSigmasOptions) -> None:
         betas=params.betas,
         sigmas=sigmas,
         trait_edges=params.trait_edges,
+        outlier_kappa=params.outlier_kappa,
+        outlier_pis=params.outlier_pis,
     )
     write_params_to_file(scaled, config.out_file)

@@ -243,4 +243,6 @@ def estimate_params_analytical(
         betas=betas.tolist(),
         sigmas=[float(value) for value in sigmas],
         trait_edges=trait_edges.tolist(),
+        outlier_kappa=params.outlier_kappa,
+        outlier_pis=params.outlier_pis,
     )

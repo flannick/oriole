@@ -57,6 +57,16 @@ class EndophenotypeConfig:
 
 
 @dataclass
+class OutliersConfig:
+    enabled: bool
+    kappa: float
+    pi: float
+    pi_by_trait: dict[str, float] | None
+    max_enum_traits: int
+    method: str | None
+
+
+@dataclass
 class TraitEdgeConfig:
     parent: str
     child: str
@@ -68,6 +78,7 @@ class Config:
     gwas: list[GwasConfig]
     endophenotypes: list[EndophenotypeConfig]
     trait_edges: list[TraitEdgeConfig]
+    outliers: OutliersConfig
     train: TrainConfig
     classify: ClassifyConfig
 
@@ -125,6 +136,16 @@ def load_config(path: str) -> Config:
         TraitEdgeConfig(parent=item["parent"], child=item["child"])
         for item in data.get("trait_edges", [])
     ]
+    outliers_data = data.get("outliers", {})
+    outliers = OutliersConfig(
+        enabled=bool(outliers_data.get("enabled", False)),
+        kappa=float(outliers_data.get("kappa", 1.0)),
+        pi=float(outliers_data.get("pi", 0.0)),
+        pi_by_trait=outliers_data.get("pi_by_trait"),
+        max_enum_traits=int(outliers_data.get("max_enum_traits", 12)),
+        method=outliers_data.get("method"),
+    )
+
     train_data = data.get("train")
     if not train_data or "ids_file" not in train_data:
         raise MocasaError(ErrorKind.TOML_DE, "Missing [train].ids_file in config.")
@@ -157,6 +178,7 @@ def load_config(path: str) -> Config:
         gwas=gwas,
         endophenotypes=endophenotypes,
         trait_edges=trait_edges,
+        outliers=outliers,
         train=train,
         classify=classify,
     )
@@ -194,6 +216,14 @@ def dump_config(config: Config) -> str:
         "trait_edges": [
             {"parent": item.parent, "child": item.child} for item in config.trait_edges
         ],
+        "outliers": {
+            "enabled": config.outliers.enabled,
+            "kappa": config.outliers.kappa,
+            "pi": config.outliers.pi,
+            "pi_by_trait": config.outliers.pi_by_trait,
+            "max_enum_traits": config.outliers.max_enum_traits,
+            "method": config.outliers.method,
+        },
         "train": {
             "ids_file": config.train.ids_file,
             "n_steps_burn_in": config.train.n_steps_burn_in,

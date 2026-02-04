@@ -23,7 +23,7 @@ def run(argv: list[str] | None = None) -> None:
                 config,
                 choice.dry,
                 match_rust=choice.match_rust,
-                analytical=choice.analytical,
+                inference=choice.inference,
                 chunk_size=choice.chunk_size,
                 verbose=choice.verbose,
             )
@@ -31,7 +31,7 @@ def run(argv: list[str] | None = None) -> None:
             classify_or_check(
                 config,
                 choice.dry,
-                analytical=choice.analytical,
+                inference=choice.inference,
                 chunk_size=choice.chunk_size,
                 verbose=choice.verbose,
             )

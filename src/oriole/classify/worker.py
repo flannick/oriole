@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy as np
 
 from .analytical import analytical_classification, calculate_mu_vec
+from .outliers_analytic import outliers_analytic_classification
+from .outliers_variational import outliers_variational_classification
 from ..data import GwasData
 from ..options.config import ClassifyConfig
 from ..params import Params
@@ -57,12 +59,14 @@ class ClassifyWorkerLauncher:
         data: GwasData,
         params: Params,
         config: ClassifyConfig,
-        analytical: bool = True,
+        inference: str = "analytic",
+        outliers_enabled: bool = False,
     ) -> None:
         self.data = data
         self.params = params
         self.config = config
-        self.analytical = analytical
+        self.inference = inference
+        self.outliers_enabled = outliers_enabled
 
     def launch(self, in_queue, out_queue, i_thread: int) -> None:
         classify_worker(
@@ -72,7 +76,8 @@ class ClassifyWorkerLauncher:
             in_queue,
             out_queue,
             i_thread,
-            analytical=self.analytical,
+            inference=self.inference,
+            outliers_enabled=self.outliers_enabled,
         )
 
 
@@ -83,7 +88,8 @@ def classify_worker(
     in_queue,
     out_queue,
     i_thread: int,
-    analytical: bool = True,
+    inference: str = "analytic",
+    outliers_enabled: bool = False,
 ) -> None:
     while True:
         message: MessageToWorker = out_queue.get()
@@ -93,9 +99,24 @@ def classify_worker(
             params_reduced = params.reduce_to(data_point.meta.trait_names, is_col)
             vars = Vars.initial_vars(data_point, params_reduced)
             rng = np.random.default_rng()
-            if analytical:
-                sampled = analytical_classification(
-                    params_reduced, list(data_point.betas[0]), list(data_point.ses[0])
+            if inference == "analytic":
+                if outliers_enabled:
+                    sampled = outliers_analytic_classification(
+                        params_reduced,
+                        list(data_point.betas[0]),
+                        list(data_point.ses[0]),
+                    )
+                else:
+                    sampled = analytical_classification(
+                        params_reduced,
+                        list(data_point.betas[0]),
+                        list(data_point.ses[0]),
+                    )
+            elif inference == "variational":
+                sampled = outliers_variational_classification(
+                    params_reduced,
+                    list(data_point.betas[0]),
+                    list(data_point.ses[0]),
                 )
             else:
                 sampler = Sampler(data_point.meta, rng)
@@ -130,14 +151,17 @@ def classify_worker(
                     t_pinned,
                 )
                 sampled = sampler.var_stats.calculate_classification()
-            mu_calculated = calculate_mu_vec(
-                params_reduced,
-                list(data_point.betas[0]),
-                list(data_point.ses[0]),
-            )
+            if inference == "analytic" and not outliers_enabled:
+                mu_calculated = calculate_mu_vec(
+                    params_reduced,
+                    list(data_point.betas[0]),
+                    list(data_point.ses[0]),
+                )
+            else:
+                mu_calculated = sampled.e_mean
             classification = Classification(sampled=sampled, e_mean_calculated=mu_calculated)
             in_queue.put(MessageToCentral(i_thread, classification))
-            if not analytical:
+            if inference == "gibbs":
                 if trace_handle is not None:
                     trace_handle.close()
         elif message.kind == "shutdown":

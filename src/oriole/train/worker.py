@@ -87,7 +87,9 @@ def train_worker(
         if message.kind == "take_n_samples":
             sampler.reset_stats()
             sampler.sample_n(data.gwas_data, params, vars, int(message.payload), None, t_pinned)
-            params_new = sampler.var_stats.compute_new_params(data.weights, mask, parent_mask)
+            params_new = sampler.var_stats.compute_new_params(
+                data.weights, mask, parent_mask, params.outlier_kappa, params.outlier_pis
+            )
             in_queue.put(MessageToCentral(i_thread, params_new))
         elif message.kind == "set_new_params":
             params = message.payload
