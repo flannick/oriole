@@ -156,6 +156,49 @@ def analytical_moments_chunk_no_edges(
     )
 
 
+def log_marginal_likelihood(
+    data: LoadedData,
+    params: Params,
+    chunk_size: int,
+) -> float:
+    gwas = data.gwas_data
+    n = gwas.meta.n_data_points()
+    weights = np.asarray(data.weights.weights, dtype=float)
+    beta = np.asarray(params.betas, dtype=float)
+    tau2 = np.asarray(params.taus, dtype=float) ** 2
+    mu = np.asarray(params.mus, dtype=float)
+    sigma2 = np.asarray(params.sigmas, dtype=float) ** 2
+    trait_edges = np.asarray(params.trait_edges, dtype=float)
+    n_traits = gwas.meta.n_traits()
+
+    l_mat = np.eye(n_traits, dtype=float) - trait_edges
+    m_mat = np.linalg.solve(l_mat, beta)
+    d_mat = np.diag(sigma2)
+    l_inv = np.linalg.solve(l_mat, np.eye(n_traits))
+    sigma_t = l_inv @ d_mat @ l_inv.T
+    base_cov = sigma_t + m_mat @ np.diag(tau2) @ m_mat.T
+    mean = m_mat @ mu
+
+    total = 0.0
+    for start in range(0, n, chunk_size):
+        end = min(n, start + chunk_size)
+        betas_obs = gwas.betas[start:end, :]
+        ses = gwas.ses[start:end, :]
+        w = weights[start:end]
+        for i in range(betas_obs.shape[0]):
+            wi = float(w[i])
+            if wi <= 0.0:
+                continue
+            cov = base_cov + np.diag(ses[i] ** 2)
+            chol = np.linalg.cholesky(cov)
+            diff = betas_obs[i] - mean
+            y = np.linalg.solve(chol, diff)
+            quad = float(y.T @ y)
+            logdet = 2.0 * float(np.sum(np.log(np.diag(chol))))
+            total += wi * (-0.5 * (quad + logdet + n_traits * np.log(2.0 * np.pi)))
+    return float(total)
+
+
 def estimate_params_analytical(
     data: LoadedData,
     params: Params,

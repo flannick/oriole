@@ -231,3 +231,65 @@ def load_gwas(
 
 def new_beta_se_list(n_traits: int) -> list[BetaSe]:
     return [BetaSe(beta=float("nan"), se=float("nan")) for _ in range(n_traits)]
+
+
+def load_data_for_ids(config: "Config", ids: list[str]) -> GwasData:
+    n_traits = len(config.gwas)
+    beta_se_by_id: Dict[str, IdData] = {}
+    for var_id in ids:
+        beta_se_by_id[var_id] = IdData(new_beta_se_list(n_traits), 1.0)
+
+    trait_names: list[str] = []
+    for i_trait, gwas in enumerate(config.gwas):
+        trait_names.append(gwas.name)
+        load_gwas(beta_se_by_id, gwas, n_traits, i_trait, Action.TRAIN)
+
+    n_data_points = len(beta_se_by_id)
+    var_ids: list[str] = []
+    betas = matrix_fill(n_data_points, n_traits, lambda _i, _j: np.nan)
+    ses = matrix_fill(n_data_points, n_traits, lambda _i, _j: np.nan)
+
+    for i_data_point, (var_id, id_data) in enumerate(beta_se_by_id.items()):
+        var_ids.append(var_id)
+        for i_trait, beta_se in enumerate(id_data.beta_se_list):
+            betas[i_data_point, i_trait] = beta_se.beta
+            ses[i_data_point, i_trait] = beta_se.se
+
+    missing_by_trait: dict[str, list[str]] = {name: [] for name in trait_names}
+    for i_data_point, var_id in enumerate(var_ids):
+        for i_trait, trait_name in enumerate(trait_names):
+            if np.isnan(betas[i_data_point, i_trait]) or np.isnan(ses[i_data_point, i_trait]):
+                if len(missing_by_trait[trait_name]) < 5:
+                    missing_by_trait[trait_name].append(var_id)
+    missing_counts = {
+        name: len(ids)
+        for name, ids in missing_by_trait.items()
+        if len(ids) > 0
+    }
+    if missing_counts:
+        parts = []
+        for name, count in missing_counts.items():
+            examples = ", ".join(missing_by_trait[name])
+            parts.append(f"{name}: {count} missing (e.g., {examples})")
+        raise new_error(
+            "Missing GWAS entries for training IDs. Fix by aligning IDs across GWAS files. "
+            + " | ".join(parts)
+        )
+
+    endo_names = [item.name for item in config.endophenotypes]
+    meta = Meta(trait_names=trait_names, var_ids=var_ids, endo_names=endo_names)
+    return GwasData(meta=meta, betas=betas, ses=ses)
+
+
+def subset_gwas_data(data: GwasData, indices: list[int]) -> GwasData:
+    if not indices:
+        raise new_error("Cannot subset GwasData with empty indices.")
+    betas = data.betas[indices, :]
+    ses = data.ses[indices, :]
+    var_ids = [data.meta.var_ids[i] for i in indices]
+    meta = Meta(
+        trait_names=data.meta.trait_names,
+        var_ids=var_ids,
+        endo_names=data.meta.endo_names,
+    )
+    return GwasData(meta=meta, betas=betas, ses=ses)

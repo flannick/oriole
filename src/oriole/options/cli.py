@@ -15,6 +15,8 @@ class CoreOptions:
     match_rust: bool
     inference: str
     chunk_size: int | None
+    plot_convergence_out_file: str | None
+    plot_cv_out_file: str | None
     verbose: bool
 
 
@@ -64,6 +66,16 @@ def _build_parser() -> argparse.ArgumentParser:
             type=int,
             help="Number of variants to process per chunk (default ~2GB).",
         )
+        sub.add_argument(
+            "--plot-convergence-out-file",
+            dest="plot_convergence_out_file",
+            help="Write training parameter convergence plot to this file.",
+        )
+        sub.add_argument(
+            "--plot-cv-out-file",
+            dest="plot_cv_out_file",
+            help="Write cross-validation grid plot to this file.",
+        )
 
     train = subparsers.add_parser(Action.TRAIN.value)
     add_core(train)
@@ -100,6 +112,8 @@ def get_choice(argv: list[str] | None = None):
             match_rust=bool(args.match_rust),
             inference=("gibbs" if args.gibbs else args.inference),
             chunk_size=args.chunk_size,
+            plot_convergence_out_file=args.plot_convergence_out_file,
+            plot_cv_out_file=args.plot_cv_out_file,
             verbose=bool(args.verbose),
         )
 

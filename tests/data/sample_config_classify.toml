@@ -1,5 +1,6 @@
 [files]
 params = "sample_params.json"
+# trace = "sample_trace.tsv"
 
 [[gwas]]
 name = "fi"
@@ -82,6 +83,43 @@ id = "VAR_ID"
 effect = "BETA"
 se = "SE"
 
+# [[endophenotypes]]
+# name = "E"
+# traits = ["*"]
+#
+# [[trait_edges]]
+# parent = "bmi"
+# child = "fi"
+#
+# [outliers]
+# enabled = false
+# kappa = 4.0
+# pi = 0.16
+# max_enum_traits = 12
+# method = "auto"
+# # pi_by_trait = { fi = 0.01, bmi = 0.02 }
+#
+# [tune_outliers]
+# enabled = false
+# mode = "off" # off | auto | fast | full | on
+# n_folds = 5
+# seed = 1
+# kappa_grid = [4.0]
+# pi_grid = [0.16]
+# min_grid_length = 10
+# max_grid_length = 30
+# genomewide_ids_file = "genome_ids.txt"
+# negative_ids_file = "hard_negatives.txt"
+# n_background_sample = 100000
+# n_negative_sample = 50000
+# fpr_targets = [1e-3]
+# lambda_hard = 0.0
+# expand_on_boundary = true
+# max_expansions = 0
+# expansion_factor = 2.0
+# force_expansions = false
+# boundary_margin = 0.01
+
 [train]
 ids_file = "sample_1000_ids.txt"
 n_steps_burn_in = 5
@@ -89,6 +127,15 @@ n_samples_per_iteration = 5
 n_iterations_per_round = 1
 n_rounds = 1
 normalize_mu_to_one = true
+# params_trace_file = "sample_params_trace.tsv"
+# t_pinned = null
+# plot_convergence_out_file = "sample_convergence.png"
+# plot_cv_out_file = "sample_cv_grid.png"
+# early_stop = false
+# early_stop_patience = 3
+# early_stop_rel_tol = 1e-4
+# early_stop_obj_tol = 1e-5
+# early_stop_min_iters = 5
 
 [classify]
 params_override = {}
@@ -96,3 +143,4 @@ n_steps_burn_in = 5
 n_samples = 50
 out_file = "sample_classify_out.tsv"
 trace_ids = []
+# t_pinned = null

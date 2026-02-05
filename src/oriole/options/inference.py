@@ -19,8 +19,6 @@ def resolve_inference(config: Config, inference: str, n_traits: int) -> str:
         method = config.outliers.method
     if config.outliers.enabled:
         if method == "auto":
-            if n_traits <= config.outliers.max_enum_traits and not config.trait_edges:
-                return "analytic"
             return "variational"
         if method == "analytic":
             if config.trait_edges:

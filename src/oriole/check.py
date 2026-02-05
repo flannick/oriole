@@ -66,6 +66,41 @@ def check_config(config: Config) -> None:
                     )
         if config.outliers.max_enum_traits <= 0:
             raise new_error("Outlier max_enum_traits must be positive.")
+    if config.tune_outliers.enabled:
+        tune = config.tune_outliers
+        if tune.n_folds < 2:
+            raise new_error("tune_outliers.n_folds must be >= 2.")
+        if not tune.kappa_grid or not tune.pi_grid:
+            raise new_error("tune_outliers.kappa_grid and pi_grid must be non-empty.")
+        for value in tune.kappa_grid:
+            if value < 1.0:
+                raise new_error("tune_outliers.kappa_grid values must be >= 1.0.")
+        for value in tune.pi_grid:
+            if not (0.0 < value < 1.0):
+                raise new_error("tune_outliers.pi_grid values must be in (0, 1).")
+        if tune.min_grid_length < 1:
+            raise new_error("tune_outliers.min_grid_length must be >= 1.")
+        if tune.max_grid_length < tune.min_grid_length:
+            raise new_error("tune_outliers.max_grid_length must be >= min_grid_length.")
+        if tune.max_expansions < 0:
+            raise new_error("tune_outliers.max_expansions must be >= 0.")
+        if tune.expansion_factor <= 1.0:
+            raise new_error("tune_outliers.expansion_factor must be > 1.0.")
+        if tune.boundary_margin < 0.0:
+            raise new_error("tune_outliers.boundary_margin must be >= 0.")
+        if tune.n_background_sample <= 0:
+            raise new_error("tune_outliers.n_background_sample must be positive.")
+        if tune.n_negative_sample < 0:
+            raise new_error("tune_outliers.n_negative_sample must be >= 0.")
+        if not tune.fpr_targets:
+            raise new_error("tune_outliers.fpr_targets must be non-empty.")
+        for value in tune.fpr_targets:
+            if value <= 0.0 or value >= 1.0:
+                raise new_error("tune_outliers.fpr_targets must be in (0, 1).")
+        if tune.genomewide_ids_file is None and tune.negative_ids_file is None:
+            raise new_error(
+                "tune_outliers requires genomewide_ids_file (or hard negatives)."
+            )
 
 
 def check_params(config: Config, params: Params) -> None:

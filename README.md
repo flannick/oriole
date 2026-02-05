@@ -65,6 +65,136 @@ python run_oriole.py classify -f config.toml
 
 ---
 
+### Configuration reference (all options)
+
+Below are all configuration options, their defaults if omitted, and when you
+might override them.
+
+`[files]`
+- `params` (default: `params_out.json` next to the config file) sets where the
+  trained parameters are written; override to keep runs separated.
+- `trace` (default: none) writes per-iteration parameter traces; enable when
+  diagnosing convergence or debugging optimization.
+
+`[[gwas]]`
+- `name` (required) names the trait; should match other sections and params.
+- `file` (required) is the GWAS TSV path.
+- `cols.id` (default: none) column name for variant ID; set if not `VAR_ID`.
+- `cols.effect` (default: none) column name for effect size; set if not `BETA`.
+- `cols.se` (default: none) column name for standard error; set if not `SE`.
+  Intuition: correct column mapping is essential for accurate likelihoods.
+
+`[endophenotypes]`
+- If omitted, a single endophenotype `E` connects to all traits (`"*"`).
+- `name` (required) names the endophenotype; useful when modeling multiple
+  latent axes.
+- `traits` (required) is a list of trait names or `["*"]` for all traits; use
+  to restrict specific endophenotypes to subsets of traits.
+
+`[trait_edges]`
+- `parent` / `child` (default: none; list can be empty) define directed edges
+  between traits. Intuition: encode known trait-to-trait causal ordering.
+
+`[outliers]`
+- `enabled` (default: `false`) toggles the outlier model.
+- `kappa` (default: `4.0`) inflates variance for outlier traits; higher means
+  more downweighting of isolated spikes.
+- `pi` (default: `0.16`) prior probability a trait is an outlier; higher makes
+  outlier handling more aggressive.
+- `pi_by_trait` (default: none) per-trait overrides of `pi`; use if some traits
+  are noisier than others.
+- `max_enum_traits` (default: `12`) maximum traits for exact enumeration; lower
+  values trade accuracy for speed in large trait sets.
+- `method` (default: none) overrides inference method for outlier scoring
+  (`analytic`, `variational`, or `gibbs`); use for reproducibility.
+
+`[tune_outliers]`
+- `enabled` (default: `false`) enables CV-based tuning.
+- `mode` (default: `off`) controls tuning strategy: `off`, `fast`, `full`,
+  `auto`, or `on`. `off` means no CV; `auto` chooses fast vs full based on size;
+  `on` is shorthand for `auto`.
+- `n_folds` (default: `5`) number of CV folds; higher is more stable but slower.
+- `seed` (default: `1`) RNG seed for fold splits and sampling.
+- `kappa_grid` (default: `[4.0]`) candidate kappas (centered on defaults).
+- `pi_grid` (default: `[0.16]`) candidate pis (centered on defaults).
+- `min_grid_length` (default: `10`) minimum grid length per axis before boundary
+  expansion; expands both directions from the center value.
+- `max_grid_length` (default: `30`) max grid length per axis after expansion.
+- `genomewide_ids_file` (default: none) list of IDs to sample background from.
+- `negative_ids_file` (default: none) optional hard negatives for CV scoring.
+- `n_background_sample` (default: `100000`) background sample size; larger gives
+  more stable tail metrics but increases runtime.
+- `n_negative_sample` (default: `50000`) hard-negative sample size.
+- `fpr_targets` (default: `[1e-3]`) tail thresholds for the CV metric.
+- `lambda_hard` (default: `0.0`) weight for hard-negative penalty.
+- `expand_on_boundary` (default: `true`) expands the grid when the boundary is
+  close to best.
+- `max_expansions` (default: `0`, meaning no cap) max expansion rounds.
+- `expansion_factor` (default: `2.0`) multiplicative step for expansion.
+- `force_expansions` (default: `false`) always expand upward for validation.
+- `boundary_margin` (default: `0.01`) expands if boundary is within 1% of best;
+  use smaller values for stricter expansion.
+
+`[train]`
+- `ids_file` (required) list of positive variants to train on.
+- `n_steps_burn_in` (default: `1000`) Gibbs burn-in steps per iteration; only
+  used for Gibbs-based expectations.
+- `n_samples_per_iteration` (default: `100`) Gibbs samples per EM iteration.
+- `n_iterations_per_round` (default: `10`) Gibbs iterations per EM round.
+- `n_rounds` (default: `1`) number of EM iterations; higher improves fit but
+  increases runtime.
+- `normalize_mu_to_one` (default: `true`) keeps endophenotype mean scaled.
+- `params_trace_file` (default: none) explicit trace output path.
+- `t_pinned` (default: none) optionally pins the trait residual variance.
+- `plot_convergence_out_file` (default: none) writes a convergence plot.
+- `plot_cv_out_file` (default: none) writes a CV grid plot.
+- `early_stop` (default: `false`) stops when parameters (and objective, if
+  available) stabilize.
+- `early_stop_patience` (default: `3`) consecutive stable iterations required.
+- `early_stop_rel_tol` (default: `1e-4`) relative parameter change tolerance.
+- `early_stop_obj_tol` (default: `1e-5`) objective change tolerance.
+- `early_stop_min_iters` (default: `5`) minimum iterations before stopping.
+
+`[classify]`
+- `params_override` (default: none) overrides parameters during classification.
+  Supports `mu`, `tau`, `mus`, `taus`, `mus_by_name`, `taus_by_name`; use to
+  test sensitivity without retraining.
+- `n_steps_burn_in` (default: `1000`) Gibbs burn-in steps; only used for Gibbs.
+- `n_samples` (default: `1000`) Gibbs samples for classification.
+- `out_file` (default: `classify_out.tsv`) output scores path.
+- `trace_ids` (default: `[]`) variant IDs to trace during classification.
+- `t_pinned` (default: none) optionally pins trait residual variance.
+
+### CLI reference (all flags)
+
+`oriole train` and `oriole classify`
+- `-f/--conf-file` (required) config file path.
+- `-d/--dry` (default: false) validate inputs without running.
+- `--verbose` (default: false) more logging.
+- `--match-rust` (default: false) match Rust implementation for parity checks.
+- `--inference {auto,analytic,variational,gibbs}` (default: `auto`) controls
+  expectation method; use `variational` for speed, `analytic` for determinism,
+  `gibbs` for sampling-based accuracy.
+- `--gibbs` (default: false) shortcut for `--inference gibbs`.
+- `--chunk-size` (default: auto) controls batch size for analytic/variational;
+  increase to speed up if you have RAM.
+- `--plot-convergence-out-file` (default: none) writes a convergence plot.
+- `--plot-cv-out-file` (default: none) writes the CV grid plot.
+
+`oriole import-phenet`
+- `-i/--phenet-file` (required) phenotype network input.
+- `-p/--params-file` (required) ORIOLE params to write.
+- `-f/--conf-file` (required) config file path.
+- `-o/--out-file` (required) output path.
+  Intuition: use this to convert external phenotype-network inputs into ORIOLE
+  params for downstream classification.
+
+`oriole scale-sigmas`
+- `-i/--in-file` (required) input params JSON.
+- `-s/--scale` (required) scale factor for trait residuals.
+- `-o/--out-file` (required) output params JSON.
+  Intuition: use to calibrate trait noise when integrating new datasets.
+
 ## Model Overview
 
 For each variant *j* and trait *i* (with K endophenotypes):
@@ -278,6 +408,12 @@ If no weight is provided, it defaults to 1.0.
 - `--gibbs`
   Shortcut for `--inference gibbs`.
 
+- `--plot-convergence-out-file <path>`
+  Write a convergence plot of parameters across iterations.
+
+- `--plot-cv-out-file <path>`
+  Write a cross-validation score grid plot for outlier tuning.
+
 - `--match-rust`
   Preserves a legacy initialization behavior (uses betas to estimate SE statistics).
 
@@ -406,8 +542,74 @@ Notes:
 
 Inference controls:
 - Use `--inference` to force `analytic`, `variational`, or `gibbs`.
-- `auto` chooses analytic enumeration if there are no trait edges and
-  the number of traits is <= `max_enum_traits`; otherwise it uses variational.
+- `auto` uses variational when outliers are enabled; otherwise it uses analytic.
 - `--gibbs` is a shortcut for `--inference gibbs`.
+
+### Early stopping for training
+
+Analytical/variational training can stop early when parameters (and the marginal
+likelihood) stop changing. Add these fields under `[train]`:
+
+```toml
+[train]
+early_stop = true
+early_stop_patience = 3
+early_stop_rel_tol = 1e-4
+early_stop_obj_tol = 1e-5
+early_stop_min_iters = 5
+```
+
+Notes:
+- The relative-parameter change is checked every iteration.
+- The marginal likelihood objective check is only available when outliers are
+  disabled; otherwise ORIOLE falls back to the parameter criterion.
+
+### Tuning kappa and pi by cross-validation
+
+To select `(kappa, pi)` using cross-validation, add a `[tune_outliers]` block.
+This uses a tail-focused metric based on the endophenotype score
+`S = m_E^T V_E^{-1} m_E` and picks the grid point that maximizes average fold
+performance.
+
+```toml
+[tune_outliers]
+enabled = true
+mode = "auto" # auto | full | fast | off
+n_folds = 5
+seed = 1
+kappa_grid = [4.0]
+pi_grid = [0.16]
+min_grid_length = 10
+max_grid_length = 30
+genomewide_ids_file = "all_ids.txt"
+negative_ids_file = "hard_negs.txt" # optional
+n_background_sample = 200000
+n_negative_sample = 50000
+fpr_targets = [1e-3, 1e-4]
+lambda_hard = 1.0
+expand_on_boundary = true
+max_expansions = 0
+expansion_factor = 2.0
+force_expansions = false
+boundary_margin = 0.01
+```
+
+Notes:
+- Tuning is off by default; set `enabled = true` and `mode` to `auto`, `fast`,
+  `full`, or `on` to activate it. `on` is a shorthand for `auto`.
+- `mode="full"` retrains within each fold (slow but principled).
+- `mode="fast"` trains once and tunes `(kappa, pi)` with fixed parameters.
+- `mode="auto"` uses `full` only for small, no-edge models; otherwise `fast`.
+- If any boundary value is within `boundary_margin` (fractional, default 1%)
+  of the best score, the grid expands by adding a full row and/or column in the
+  direction of that boundary. Expansion continues until no boundary is within
+  the margin or the grid reaches `max_grid_size` per axis. Set `max_expansions`
+  to cap expansions (0 means no cap).
+- Set `force_expansions = true` to expand the upper bounds every time (ignoring
+  boundary checks). This is only for validation/debugging.
+- If `mode` is not `off`, ORIOLE always runs CV. The center of the CV grid is
+  the specified `kappa`/`pi` if present; otherwise it uses the built‑in defaults.
+- The tuner errors out if the requested background/negative sample sizes exceed
+  the available IDs, and it warns if a hard-negative file yields no usable IDs.
 
 ---

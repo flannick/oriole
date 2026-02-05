@@ -38,6 +38,13 @@ class TrainConfig:
     normalize_mu_to_one: bool
     params_trace_file: Optional[str] = None
     t_pinned: Optional[bool] = None
+    plot_convergence_out_file: Optional[str] = None
+    plot_cv_out_file: Optional[str] = None
+    early_stop: bool = False
+    early_stop_patience: int = 3
+    early_stop_rel_tol: float = 1e-4
+    early_stop_obj_tol: float = 1e-5
+    early_stop_min_iters: int = 5
 
 
 @dataclass
@@ -64,6 +71,33 @@ class OutliersConfig:
     pi_by_trait: dict[str, float] | None
     max_enum_traits: int
     method: str | None
+    kappa_specified: bool
+    pi_specified: bool
+
+
+@dataclass
+class TuneOutliersConfig:
+    enabled: bool
+    mode: str
+    n_folds: int
+    seed: int
+    kappa_grid: list[float]
+    pi_grid: list[float]
+    kappa_grid_specified: bool
+    pi_grid_specified: bool
+    min_grid_length: int
+    max_grid_length: int
+    genomewide_ids_file: Optional[str]
+    negative_ids_file: Optional[str]
+    n_background_sample: int
+    n_negative_sample: int
+    fpr_targets: list[float]
+    lambda_hard: float
+    expand_on_boundary: bool
+    max_expansions: int
+    expansion_factor: float
+    force_expansions: bool
+    boundary_margin: float
 
 
 @dataclass
@@ -79,6 +113,7 @@ class Config:
     endophenotypes: list[EndophenotypeConfig]
     trait_edges: list[TraitEdgeConfig]
     outliers: OutliersConfig
+    tune_outliers: TuneOutliersConfig
     train: TrainConfig
     classify: ClassifyConfig
 
@@ -137,13 +172,54 @@ def load_config(path: str) -> Config:
         for item in data.get("trait_edges", [])
     ]
     outliers_data = data.get("outliers", {})
+    kappa_specified = "kappa" in outliers_data
+    pi_specified = "pi" in outliers_data or "pi_by_trait" in outliers_data
     outliers = OutliersConfig(
         enabled=bool(outliers_data.get("enabled", False)),
-        kappa=float(outliers_data.get("kappa", 1.0)),
-        pi=float(outliers_data.get("pi", 0.0)),
+        kappa=float(outliers_data.get("kappa", DEFAULT_OUTLIER_KAPPA)),
+        pi=float(outliers_data.get("pi", DEFAULT_OUTLIER_PI)),
         pi_by_trait=outliers_data.get("pi_by_trait"),
         max_enum_traits=int(outliers_data.get("max_enum_traits", 12)),
         method=outliers_data.get("method"),
+        kappa_specified=kappa_specified,
+        pi_specified=pi_specified,
+    )
+    tune_data = data.get("tune_outliers", {})
+    default_kappa_grid = [DEFAULT_OUTLIER_KAPPA]
+    default_pi_grid = [DEFAULT_OUTLIER_PI]
+    kappa_grid_specified = "kappa_grid" in tune_data
+    pi_grid_specified = "pi_grid" in tune_data
+    kappa_grid = [float(v) for v in tune_data.get("kappa_grid", [])]
+    pi_grid = [float(v) for v in tune_data.get("pi_grid", [])]
+    if not kappa_grid:
+        kappa_grid = list(default_kappa_grid)
+    if not pi_grid:
+        pi_grid = list(default_pi_grid)
+    tune_mode = str(tune_data.get("mode", "off"))
+    if tune_mode == "on":
+        tune_mode = "auto"
+    tune_outliers = TuneOutliersConfig(
+        enabled=bool(tune_data.get("enabled", False)),
+        mode=tune_mode,
+        n_folds=int(tune_data.get("n_folds", 5)),
+        seed=int(tune_data.get("seed", 1)),
+        kappa_grid=kappa_grid,
+        pi_grid=pi_grid,
+        kappa_grid_specified=kappa_grid_specified,
+        pi_grid_specified=pi_grid_specified,
+        min_grid_length=int(tune_data.get("min_grid_length", 10)),
+        max_grid_length=int(tune_data.get("max_grid_length", 30)),
+        genomewide_ids_file=tune_data.get("genomewide_ids_file"),
+        negative_ids_file=tune_data.get("negative_ids_file"),
+        n_background_sample=int(tune_data.get("n_background_sample", 100000)),
+        n_negative_sample=int(tune_data.get("n_negative_sample", 50000)),
+        fpr_targets=[float(v) for v in tune_data.get("fpr_targets", [1e-3])],
+        lambda_hard=float(tune_data.get("lambda_hard", 0.0)),
+        expand_on_boundary=bool(tune_data.get("expand_on_boundary", True)),
+        max_expansions=int(tune_data.get("max_expansions", 0)),
+        expansion_factor=float(tune_data.get("expansion_factor", 2.0)),
+        force_expansions=bool(tune_data.get("force_expansions", False)),
+        boundary_margin=float(tune_data.get("boundary_margin", 0.01)),
     )
 
     train_data = data.get("train")
@@ -158,6 +234,13 @@ def load_config(path: str) -> Config:
         normalize_mu_to_one=train_data.get("normalize_mu_to_one", True),
         params_trace_file=train_data.get("params_trace_file"),
         t_pinned=train_data.get("t_pinned"),
+        plot_convergence_out_file=train_data.get("plot_convergence_out_file"),
+        plot_cv_out_file=train_data.get("plot_cv_out_file"),
+        early_stop=bool(train_data.get("early_stop", False)),
+        early_stop_patience=int(train_data.get("early_stop_patience", 3)),
+        early_stop_rel_tol=float(train_data.get("early_stop_rel_tol", 1e-4)),
+        early_stop_obj_tol=float(train_data.get("early_stop_obj_tol", 1e-5)),
+        early_stop_min_iters=int(train_data.get("early_stop_min_iters", 5)),
     )
     classify_data = data.get("classify")
     if classify_data is None:
@@ -179,6 +262,7 @@ def load_config(path: str) -> Config:
         endophenotypes=endophenotypes,
         trait_edges=trait_edges,
         outliers=outliers,
+        tune_outliers=tune_outliers,
         train=train,
         classify=classify,
     )
@@ -224,6 +308,29 @@ def dump_config(config: Config) -> str:
             "max_enum_traits": config.outliers.max_enum_traits,
             "method": config.outliers.method,
         },
+        "tune_outliers": {
+            "enabled": config.tune_outliers.enabled,
+            "mode": config.tune_outliers.mode,
+            "n_folds": config.tune_outliers.n_folds,
+            "seed": config.tune_outliers.seed,
+            "kappa_grid": config.tune_outliers.kappa_grid,
+            "pi_grid": config.tune_outliers.pi_grid,
+            "kappa_grid_specified": config.tune_outliers.kappa_grid_specified,
+            "pi_grid_specified": config.tune_outliers.pi_grid_specified,
+            "min_grid_length": config.tune_outliers.min_grid_length,
+            "max_grid_length": config.tune_outliers.max_grid_length,
+            "genomewide_ids_file": config.tune_outliers.genomewide_ids_file,
+            "negative_ids_file": config.tune_outliers.negative_ids_file,
+            "n_background_sample": config.tune_outliers.n_background_sample,
+            "n_negative_sample": config.tune_outliers.n_negative_sample,
+            "fpr_targets": config.tune_outliers.fpr_targets,
+            "lambda_hard": config.tune_outliers.lambda_hard,
+            "expand_on_boundary": config.tune_outliers.expand_on_boundary,
+            "max_expansions": config.tune_outliers.max_expansions,
+            "expansion_factor": config.tune_outliers.expansion_factor,
+            "force_expansions": config.tune_outliers.force_expansions,
+            "boundary_margin": config.tune_outliers.boundary_margin,
+        },
         "train": {
             "ids_file": config.train.ids_file,
             "n_steps_burn_in": config.train.n_steps_burn_in,
@@ -233,6 +340,13 @@ def dump_config(config: Config) -> str:
             "normalize_mu_to_one": config.train.normalize_mu_to_one,
             "params_trace_file": config.train.params_trace_file,
             "t_pinned": config.train.t_pinned,
+            "plot_convergence_out_file": config.train.plot_convergence_out_file,
+            "plot_cv_out_file": config.train.plot_cv_out_file,
+            "early_stop": config.train.early_stop,
+            "early_stop_patience": config.train.early_stop_patience,
+            "early_stop_rel_tol": config.train.early_stop_rel_tol,
+            "early_stop_obj_tol": config.train.early_stop_obj_tol,
+            "early_stop_min_iters": config.train.early_stop_min_iters,
         },
         "classify": classify_to_dict(config.classify),
     }
@@ -258,3 +372,5 @@ def endophenotype_mask(config: Config) -> list[list[bool]]:
                 trait_mask.append(trait in endo.traits)
         mask.append(trait_mask)
     return mask
+DEFAULT_OUTLIER_KAPPA = 4.0
+DEFAULT_OUTLIER_PI = 0.16

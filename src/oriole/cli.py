@@ -18,6 +18,10 @@ def run(argv: list[str] | None = None) -> None:
         config = load_config(choice.config_file)
         check_config(config)
         check_prerequisites(config)
+        if choice.plot_convergence_out_file:
+            config.train.plot_convergence_out_file = choice.plot_convergence_out_file
+        if choice.plot_cv_out_file:
+            config.train.plot_cv_out_file = choice.plot_cv_out_file
         if choice.action == Action.TRAIN:
             train_or_check(
                 config,
