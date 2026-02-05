@@ -167,8 +167,9 @@ def load_data(config: Config, action: Action) -> LoadedData:
             for name, count in missing_counts.items():
                 examples = ", ".join(missing_by_trait[name])
                 parts.append(f"{name}: {count} missing (e.g., {examples})")
-            raise new_error(
-                "Missing GWAS entries for training IDs. Fix by aligning IDs across GWAS files. "
+            print(
+                "Warning: missing GWAS entries for training IDs; "
+                "treating missing traits as unobserved. "
                 + " | ".join(parts)
             )
 
@@ -254,7 +255,7 @@ def _open_text(path: str) -> io.TextIOBase:
     raw = open(path, "rb")
     magic = raw.read(2)
     raw.seek(0)
-    if magic == b\"\\x1f\\x8b\":
+    if magic == b"\x1f\x8b":
         return gzip.open(raw, "rt", encoding="utf-8")
     return io.TextIOWrapper(raw, encoding="utf-8")
 
@@ -297,8 +298,9 @@ def load_data_for_ids(config: "Config", ids: list[str]) -> GwasData:
         for name, count in missing_counts.items():
             examples = ", ".join(missing_by_trait[name])
             parts.append(f"{name}: {count} missing (e.g., {examples})")
-        raise new_error(
-            "Missing GWAS entries for training IDs. Fix by aligning IDs across GWAS files. "
+        print(
+            "Warning: missing GWAS entries for training IDs; "
+            "treating missing traits as unobserved. "
             + " | ".join(parts)
         )
 

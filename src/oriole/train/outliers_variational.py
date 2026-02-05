@@ -31,28 +31,55 @@ def estimate_params_variational_outliers(
     tt_sum_w = np.zeros((n_traits, n_traits, n_traits), dtype=float)
     t2_sum_w = np.zeros(n_traits, dtype=float)
 
-    for start in range(0, n, chunk_size):
-        end = min(n, start + chunk_size)
-        betas_obs = gwas.betas[start:end, :]
-        ses = gwas.ses[start:end, :]
-        w = weights[start:end]
-        for i in range(betas_obs.shape[0]):
-            weight = float(w[i])
+    if np.isnan(gwas.betas).any() or np.isnan(gwas.ses).any():
+        for i in range(n):
+            weight = float(weights[i])
             if weight <= 0.0:
                 continue
+            single, is_cols = gwas.only_data_point(i)
+            if not is_cols:
+                continue
+            params_reduced = params.reduce_to(single.meta.trait_names, is_cols)
             m, ee, te, tt, _, _, alpha = variational_posterior(
-                params, betas_obs[i], ses[i]
+                params_reduced, single.betas[0], single.ses[0]
             )
             e_sum += weight * m
             ee_sum += weight * ee
-            te_sum += weight * te
-            tt_sum += weight * tt
             w_sum += weight
+            for local_i, global_i in enumerate(is_cols):
+                te_sum[global_i] += weight * te[local_i]
+                ee_sum_w[global_i] += (weight * alpha[local_i]) * ee
+                t2_sum_w[global_i] += (weight * alpha[local_i]) * tt[local_i, local_i]
+                for local_j, global_j in enumerate(is_cols):
+                    tt_sum[global_i, global_j] += weight * tt[local_i, local_j]
+                    te_sum_w[global_i][global_j] += (weight * alpha[local_i]) * te[local_j]
+                    for local_k, global_k in enumerate(is_cols):
+                        tt_sum_w[global_i][global_j][global_k] += (
+                            (weight * alpha[local_i]) * tt[local_j, local_k]
+                        )
+    else:
+        for start in range(0, n, chunk_size):
+            end = min(n, start + chunk_size)
+            betas_obs = gwas.betas[start:end, :]
+            ses = gwas.ses[start:end, :]
+            w = weights[start:end]
+            for i in range(betas_obs.shape[0]):
+                weight = float(w[i])
+                if weight <= 0.0:
+                    continue
+                m, ee, te, tt, _, _, alpha = variational_posterior(
+                    params, betas_obs[i], ses[i]
+                )
+                e_sum += weight * m
+                ee_sum += weight * ee
+                te_sum += weight * te
+                tt_sum += weight * tt
+                w_sum += weight
 
-            ee_sum_w += (weight * alpha)[:, None, None] * ee[None, :, :]
-            te_sum_w += (weight * alpha)[:, None, None] * te[None, :, :]
-            tt_sum_w += (weight * alpha)[:, None, None] * tt[None, :, :]
-            t2_sum_w += (weight * alpha) * np.diag(tt)
+                ee_sum_w += (weight * alpha)[:, None, None] * ee[None, :, :]
+                te_sum_w += (weight * alpha)[:, None, None] * te[None, :, :]
+                tt_sum_w += (weight * alpha)[:, None, None] * tt[None, :, :]
+                t2_sum_w += (weight * alpha) * np.diag(tt)
 
     mu = e_sum / w_sum
     diag_ee = np.diag(ee_sum)

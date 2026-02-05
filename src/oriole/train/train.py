@@ -234,26 +234,29 @@ def train(
                     )
                 prev_vec = vec
 
-                obj_available = not config.outliers.enabled
-                if obj_available:
-                    obj = log_marginal_likelihood(data, params, chunk_size)
-                    if prev_obj is not None:
-                        denom = max(abs(prev_obj), 1e-12)
-                        obj_change = abs(obj - prev_obj) / denom
-                        if obj_change < config.train.early_stop_obj_tol:
-                            obj_ok += 1
-                        else:
-                            obj_ok = 0
-                        print(
-                            f"Early stop check: obj_change={obj_change:.3e} "
-                            f"(patience {obj_ok}/{config.train.early_stop_patience})"
-                        )
-                    prev_obj = obj
-                else:
+            obj_available = not config.outliers.enabled and not (
+                np.isnan(data.gwas_data.betas).any()
+                or np.isnan(data.gwas_data.ses).any()
+            )
+            if obj_available:
+                obj = log_marginal_likelihood(data, params, chunk_size)
+                if prev_obj is not None:
+                    denom = max(abs(prev_obj), 1e-12)
+                    obj_change = abs(obj - prev_obj) / denom
+                    if obj_change < config.train.early_stop_obj_tol:
+                        obj_ok += 1
+                    else:
+                        obj_ok = 0
                     print(
-                        "Early stop objective check skipped (outliers enabled); "
-                        "using parameter change only."
+                        f"Early stop check: obj_change={obj_change:.3e} "
+                        f"(patience {obj_ok}/{config.train.early_stop_patience})"
                     )
+                prev_obj = obj
+            else:
+                print(
+                    "Early stop objective check skipped (outliers enabled); "
+                    "using parameter change only."
+                )
 
                 if i_iteration + 1 >= config.train.early_stop_min_iters:
                     rel_ready = rel_ok >= config.train.early_stop_patience

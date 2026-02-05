@@ -100,28 +100,55 @@ def estimate_params_analytical_outliers(
     tt_sum_w = np.zeros((n_traits, n_traits, n_traits), dtype=float)
     t2_sum_w = np.zeros(n_traits, dtype=float)
 
-    for start in range(0, n, chunk_size):
-        end = min(n, start + chunk_size)
-        betas_obs = gwas.betas[start:end, :]
-        ses = gwas.ses[start:end, :]
-        w = weights[start:end]
-        for i in range(betas_obs.shape[0]):
-            weight = float(w[i])
+    if np.isnan(gwas.betas).any() or np.isnan(gwas.ses).any():
+        for i in range(n):
+            weight = float(weights[i])
             if weight <= 0.0:
                 continue
+            single, is_cols = gwas.only_data_point(i)
+            if not is_cols:
+                continue
+            params_reduced = params.reduce_to(single.meta.trait_names, is_cols)
             e_mean, ee_mix, te_mix, tt_mix, ee_w, te_w, tt_w, t2_w = (
-                _analytic_variant_moments(params, betas_obs[i], ses[i])
+                _analytic_variant_moments(params_reduced, single.betas[0], single.ses[0])
             )
             e_sum += weight * e_mean
             ee_sum += weight * ee_mix
-            te_sum += weight * te_mix
-            tt_sum += weight * tt_mix
             w_sum += weight
+            for local_i, global_i in enumerate(is_cols):
+                te_sum[global_i] += weight * te_mix[local_i]
+                ee_sum_w[global_i] += weight * ee_w[local_i]
+                t2_sum_w[global_i] += weight * t2_w[local_i]
+                for local_j, global_j in enumerate(is_cols):
+                    tt_sum[global_i, global_j] += weight * tt_mix[local_i, local_j]
+                    te_sum_w[global_i][global_j] += weight * te_w[local_i][local_j]
+                    for local_k, global_k in enumerate(is_cols):
+                        tt_sum_w[global_i][global_j][global_k] += (
+                            weight * tt_w[local_i][local_j][local_k]
+                        )
+    else:
+        for start in range(0, n, chunk_size):
+            end = min(n, start + chunk_size)
+            betas_obs = gwas.betas[start:end, :]
+            ses = gwas.ses[start:end, :]
+            w = weights[start:end]
+            for i in range(betas_obs.shape[0]):
+                weight = float(w[i])
+                if weight <= 0.0:
+                    continue
+                e_mean, ee_mix, te_mix, tt_mix, ee_w, te_w, tt_w, t2_w = (
+                    _analytic_variant_moments(params, betas_obs[i], ses[i])
+                )
+                e_sum += weight * e_mean
+                ee_sum += weight * ee_mix
+                te_sum += weight * te_mix
+                tt_sum += weight * tt_mix
+                w_sum += weight
 
-            ee_sum_w += weight * ee_w
-            te_sum_w += weight * te_w
-            tt_sum_w += weight * tt_w
-            t2_sum_w += weight * t2_w
+                ee_sum_w += weight * ee_w
+                te_sum_w += weight * te_w
+                tt_sum_w += weight * tt_w
+                t2_sum_w += weight * t2_w
 
     mu = e_sum / w_sum
     diag_ee = np.diag(ee_sum)

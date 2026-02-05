@@ -219,20 +219,48 @@ def estimate_params_analytical(
     w_sum = 0.0
 
     no_edges = not np.any(parent_mask)
-    for start in range(0, n, chunk_size):
-        end = min(n, start + chunk_size)
-        betas_obs = gwas.betas[start:end, :]
-        ses = gwas.ses[start:end, :]
-        w = weights[start:end]
-        if no_edges:
-            moments = analytical_moments_chunk_no_edges(params, betas_obs, ses, w)
-        else:
-            moments = analytical_moments_chunk(params, betas_obs, ses, w)
-        e_sum += moments.e_sum
-        ee_sum += moments.ee_sum
-        te_sum += moments.te_sum
-        tt_sum += moments.tt_sum
-        w_sum += moments.weight_sum
+    if np.isnan(gwas.betas).any() or np.isnan(gwas.ses).any():
+        for i in range(n):
+            w = float(weights[i])
+            if w <= 0.0:
+                continue
+            single, is_cols = gwas.only_data_point(i)
+            if not is_cols:
+                continue
+            params_reduced = params.reduce_to(single.meta.trait_names, is_cols)
+            mask_reduced = mask[is_cols, :]
+            parent_reduced = parent_mask[np.ix_(is_cols, is_cols)]
+            w_arr = np.asarray([w], dtype=float)
+            if not np.any(parent_reduced):
+                moments = analytical_moments_chunk_no_edges(
+                    params_reduced, single.betas, single.ses, w_arr
+                )
+            else:
+                moments = analytical_moments_chunk(
+                    params_reduced, single.betas, single.ses, w_arr
+                )
+            e_sum += moments.e_sum
+            ee_sum += moments.ee_sum
+            w_sum += moments.weight_sum
+            for local_i, global_i in enumerate(is_cols):
+                te_sum[global_i] += moments.te_sum[local_i]
+                for local_j, global_j in enumerate(is_cols):
+                    tt_sum[global_i, global_j] += moments.tt_sum[local_i, local_j]
+    else:
+        for start in range(0, n, chunk_size):
+            end = min(n, start + chunk_size)
+            betas_obs = gwas.betas[start:end, :]
+            ses = gwas.ses[start:end, :]
+            w = weights[start:end]
+            if no_edges:
+                moments = analytical_moments_chunk_no_edges(params, betas_obs, ses, w)
+            else:
+                moments = analytical_moments_chunk(params, betas_obs, ses, w)
+            e_sum += moments.e_sum
+            ee_sum += moments.ee_sum
+            te_sum += moments.te_sum
+            tt_sum += moments.tt_sum
+            w_sum += moments.weight_sum
 
     mu = e_sum / w_sum
     diag_ee = np.diag(ee_sum)

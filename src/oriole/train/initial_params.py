@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import numpy as np
+
 from ..data import GwasData
 from ..error import new_error
 from ..math_utils.stats import Stats
@@ -20,11 +22,15 @@ def estimate_initial_params(
     se_stats = [Stats() for _ in range(n_traits)]
     for i_data_point in range(n_data_points):
         for i_trait in range(n_traits):
-            beta_stats[i_trait].add(float(data.betas[i_data_point, i_trait]))
-            if match_rust:
-                se_stats[i_trait].add(float(data.betas[i_data_point, i_trait]))
-            else:
-                se_stats[i_trait].add(float(data.ses[i_data_point, i_trait]))
+            beta = float(data.betas[i_data_point, i_trait])
+            if np.isfinite(beta):
+                beta_stats[i_trait].add(beta)
+                if match_rust:
+                    se_stats[i_trait].add(beta)
+                else:
+                    se = float(data.ses[i_data_point, i_trait])
+                    if np.isfinite(se):
+                        se_stats[i_trait].add(se)
 
     sigmas: list[float] = []
     for stats in beta_stats:
