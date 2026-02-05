@@ -67,12 +67,14 @@ class EndophenotypeConfig:
 class OutliersConfig:
     enabled: bool
     kappa: float
+    expected_outliers: Optional[float]
     pi: float
     pi_by_trait: dict[str, float] | None
     max_enum_traits: int
     method: str | None
     kappa_specified: bool
     pi_specified: bool
+    expected_outliers_specified: bool
 
 
 @dataclass
@@ -82,9 +84,9 @@ class TuneOutliersConfig:
     n_folds: int
     seed: int
     kappa_grid: list[float]
-    pi_grid: list[float]
+    expected_outliers_grid: list[float]
     kappa_grid_specified: bool
-    pi_grid_specified: bool
+    expected_outliers_grid_specified: bool
     min_grid_length: int
     max_grid_length: int
     genomewide_ids_file: Optional[str]
@@ -174,27 +176,55 @@ def load_config(path: str) -> Config:
     outliers_data = data.get("outliers", {})
     kappa_specified = "kappa" in outliers_data
     pi_specified = "pi" in outliers_data or "pi_by_trait" in outliers_data
+    expected_outliers_specified = "expected_outliers" in outliers_data
+    if expected_outliers_specified and pi_specified:
+        raise MocasaError(
+            ErrorKind.TOML_DE,
+            "outliers.expected_outliers is mutually exclusive with outliers.pi/pi_by_trait.",
+        )
+    n_traits = len(gwas)
+    expected_outliers_value = None
+    if expected_outliers_specified:
+        expected_outliers_value = float(outliers_data["expected_outliers"])
+        if expected_outliers_value <= 0.0:
+            raise MocasaError(
+                ErrorKind.TOML_DE,
+                "outliers.expected_outliers must be > 0.",
+            )
+        pi_value = expected_outliers_value / max(1, n_traits)
+    else:
+        pi_value = float(outliers_data.get("pi", DEFAULT_OUTLIER_PI))
     outliers = OutliersConfig(
         enabled=bool(outliers_data.get("enabled", False)),
         kappa=float(outliers_data.get("kappa", DEFAULT_OUTLIER_KAPPA)),
-        pi=float(outliers_data.get("pi", DEFAULT_OUTLIER_PI)),
+        expected_outliers=expected_outliers_value,
+        pi=pi_value,
         pi_by_trait=outliers_data.get("pi_by_trait"),
         max_enum_traits=int(outliers_data.get("max_enum_traits", 12)),
         method=outliers_data.get("method"),
         kappa_specified=kappa_specified,
         pi_specified=pi_specified,
+        expected_outliers_specified=expected_outliers_specified,
     )
     tune_data = data.get("tune_outliers", {})
     default_kappa_grid = [DEFAULT_OUTLIER_KAPPA]
-    default_pi_grid = [DEFAULT_OUTLIER_PI]
+    default_expected_outliers_grid = [DEFAULT_OUTLIER_PI * max(1, n_traits)]
     kappa_grid_specified = "kappa_grid" in tune_data
-    pi_grid_specified = "pi_grid" in tune_data
+    expected_outliers_grid_specified = (
+        "expected_outliers_grid" in tune_data or "pi_grid" in tune_data
+    )
     kappa_grid = [float(v) for v in tune_data.get("kappa_grid", [])]
-    pi_grid = [float(v) for v in tune_data.get("pi_grid", [])]
+    expected_outliers_grid = [
+        float(v) for v in tune_data.get("expected_outliers_grid", [])
+    ]
+    if not expected_outliers_grid and "pi_grid" in tune_data:
+        expected_outliers_grid = [
+            float(v) * max(1, n_traits) for v in tune_data.get("pi_grid", [])
+        ]
     if not kappa_grid:
         kappa_grid = list(default_kappa_grid)
-    if not pi_grid:
-        pi_grid = list(default_pi_grid)
+    if not expected_outliers_grid:
+        expected_outliers_grid = list(default_expected_outliers_grid)
     tune_mode = str(tune_data.get("mode", "off"))
     if tune_mode == "on":
         tune_mode = "auto"
@@ -204,9 +234,9 @@ def load_config(path: str) -> Config:
         n_folds=int(tune_data.get("n_folds", 5)),
         seed=int(tune_data.get("seed", 1)),
         kappa_grid=kappa_grid,
-        pi_grid=pi_grid,
+        expected_outliers_grid=expected_outliers_grid,
         kappa_grid_specified=kappa_grid_specified,
-        pi_grid_specified=pi_grid_specified,
+        expected_outliers_grid_specified=expected_outliers_grid_specified,
         min_grid_length=int(tune_data.get("min_grid_length", 10)),
         max_grid_length=int(tune_data.get("max_grid_length", 30)),
         genomewide_ids_file=tune_data.get("genomewide_ids_file"),
@@ -314,9 +344,9 @@ def dump_config(config: Config) -> str:
             "n_folds": config.tune_outliers.n_folds,
             "seed": config.tune_outliers.seed,
             "kappa_grid": config.tune_outliers.kappa_grid,
-            "pi_grid": config.tune_outliers.pi_grid,
+            "expected_outliers_grid": config.tune_outliers.expected_outliers_grid,
             "kappa_grid_specified": config.tune_outliers.kappa_grid_specified,
-            "pi_grid_specified": config.tune_outliers.pi_grid_specified,
+            "expected_outliers_grid_specified": config.tune_outliers.expected_outliers_grid_specified,
             "min_grid_length": config.tune_outliers.min_grid_length,
             "max_grid_length": config.tune_outliers.max_grid_length,
             "genomewide_ids_file": config.tune_outliers.genomewide_ids_file,
@@ -350,6 +380,9 @@ def dump_config(config: Config) -> str:
         },
         "classify": classify_to_dict(config.classify),
     }
+    if config.outliers.expected_outliers_specified:
+        data["outliers"]["expected_outliers"] = config.outliers.expected_outliers
+        data["outliers"].pop("pi", None)
     try:
         return tomli_w.dumps(data)
     except Exception as exc:

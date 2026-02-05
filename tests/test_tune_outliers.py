@@ -78,7 +78,7 @@ se = \"SE\"
 [outliers]
 enabled = true
 kappa = 4.0
-pi = 0.01
+expected_outliers = 0.03
 max_enum_traits = 12
 method = \"analytic\"
 
@@ -88,7 +88,7 @@ mode = \"fast\"
 n_folds = 3
 seed = 1
 kappa_grid = [2.0, 4.0]
-pi_grid = [0.001, 0.1]
+expected_outliers_grid = [0.003, 0.3]
 min_grid_length = 1
 max_grid_length = 10
 genomewide_ids_file = \"{(tmp_path / 'genome.txt').as_posix()}\"
@@ -111,5 +111,7 @@ normalize_mu_to_one = true
     cfg = load_config(str(config))
     result = tune_outliers(cfg, "analytic")
     assert math.isclose(result.kappa, 2.0) or math.isclose(result.kappa, 4.0)
-    assert math.isclose(result.pi, 0.001) or math.isclose(result.pi, 0.1)
+    assert math.isclose(result.expected_outliers, 0.003) or math.isclose(
+        result.expected_outliers, 0.3
+    )
     assert len(result.scores) == 4

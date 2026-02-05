@@ -94,7 +94,8 @@ se = "SE"
 # [outliers]
 # enabled = false
 # kappa = 4.0
-# pi = 0.16
+# expected_outliers = 1.44
+# # pi = 0.16
 # max_enum_traits = 12
 # method = "auto"
 # # pi_by_trait = { fi = 0.01, bmi = 0.02 }
@@ -105,7 +106,7 @@ se = "SE"
 # n_folds = 5
 # seed = 1
 # kappa_grid = [4.0]
-# pi_grid = [0.16]
+# expected_outliers_grid = [1.44]
 # min_grid_length = 10
 # max_grid_length = 30
 # genomewide_ids_file = "genome_ids.txt"

@@ -54,9 +54,23 @@ def check_config(config: Config) -> None:
     if config.outliers.enabled:
         if config.outliers.kappa < 1.0:
             raise new_error("Outlier kappa must be >= 1.0.")
+        if config.outliers.expected_outliers_specified:
+            n_traits = len(config.gwas)
+            if config.outliers.expected_outliers is None:
+                raise new_error("Outliers expected_outliers missing.")
+            if config.outliers.expected_outliers <= 0.0:
+                raise new_error("Outlier expected_outliers must be > 0.")
+            if config.outliers.expected_outliers >= n_traits:
+                raise new_error(
+                    "Outlier expected_outliers must be < number of traits."
+                )
         if not (0.0 < config.outliers.pi < 1.0):
             raise new_error("Outlier pi must be in (0, 1).")
         if config.outliers.pi_by_trait:
+            if config.outliers.expected_outliers_specified:
+                raise new_error(
+                    "Outlier expected_outliers cannot be used with pi_by_trait."
+                )
             for name, value in config.outliers.pi_by_trait.items():
                 if name not in gwas_names:
                     raise new_error(f"Outlier pi_by_trait references unknown trait {name}.")
@@ -68,16 +82,23 @@ def check_config(config: Config) -> None:
             raise new_error("Outlier max_enum_traits must be positive.")
     if config.tune_outliers.enabled:
         tune = config.tune_outliers
+        if config.outliers.pi_by_trait:
+            raise new_error("tune_outliers requires a shared outlier rate (no pi_by_trait).")
         if tune.n_folds < 2:
             raise new_error("tune_outliers.n_folds must be >= 2.")
-        if not tune.kappa_grid or not tune.pi_grid:
-            raise new_error("tune_outliers.kappa_grid and pi_grid must be non-empty.")
+        if not tune.kappa_grid or not tune.expected_outliers_grid:
+            raise new_error(
+                "tune_outliers.kappa_grid and expected_outliers_grid must be non-empty."
+            )
         for value in tune.kappa_grid:
             if value < 1.0:
                 raise new_error("tune_outliers.kappa_grid values must be >= 1.0.")
-        for value in tune.pi_grid:
-            if not (0.0 < value < 1.0):
-                raise new_error("tune_outliers.pi_grid values must be in (0, 1).")
+        n_traits = len(config.gwas)
+        for value in tune.expected_outliers_grid:
+            if value <= 0.0 or value >= n_traits:
+                raise new_error(
+                    "tune_outliers.expected_outliers_grid values must be in (0, n_traits)."
+                )
         if tune.min_grid_length < 1:
             raise new_error("tune_outliers.min_grid_length must be >= 1.")
         if tune.max_grid_length < tune.min_grid_length:

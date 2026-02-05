@@ -157,16 +157,21 @@ def train(
         print(f"CV tuning phase took {time.perf_counter() - tune_start:.2f}s")
         config.outliers.kappa = result.kappa
         config.outliers.pi = result.pi
+        config.outliers.expected_outliers = result.expected_outliers
         config.outliers.pi_by_trait = None
         if config.train.plot_cv_out_file:
             plot_cv_grid(
                 result.scores,
                 result.kappa_grid,
-                result.pi_grid,
-                (result.kappa, result.pi),
+                result.expected_outliers_grid,
+                (result.kappa, result.expected_outliers),
                 config.train.plot_cv_out_file,
             )
-    elif config.outliers.enabled and not (config.outliers.kappa_specified or config.outliers.pi_specified):
+    elif config.outliers.enabled and not (
+        config.outliers.kappa_specified
+        or config.outliers.pi_specified
+        or config.outliers.expected_outliers_specified
+    ):
         config.outliers.pi_by_trait = None
     params = estimate_initial_params(
         data.gwas_data, config.endophenotypes, mask, match_rust=match_rust

@@ -28,11 +28,12 @@ from ..options.config import endophenotype_mask
 @dataclass
 class TuneResult:
     kappa: float
+    expected_outliers: float
     pi: float
     score: float
     scores: dict[tuple[float, float], float]
     kappa_grid: list[float]
-    pi_grid: list[float]
+    expected_outliers_grid: list[float]
 
 
 @dataclass
@@ -154,7 +155,7 @@ def _train_params_for_ids(
     ids: list[str],
     inference: str,
     kappa: float,
-    pi: float,
+    expected_outliers: float,
     pos_data: GwasData | None = None,
     pos_index: dict[str, int] | None = None,
 ) -> Params:
@@ -168,12 +169,14 @@ def _train_params_for_ids(
         data = load_data_for_ids(config, ids)
     mask = np.asarray(endophenotype_mask(config), dtype=bool)
     trait_names = [item.name for item in config.gwas]
+    n_traits = len(trait_names)
     trait_index = {name: idx for idx, name in enumerate(trait_names)}
     parent_mask = np.zeros((len(trait_names), len(trait_names)), dtype=bool)
     for edge in config.trait_edges:
         parent_mask[trait_index[edge.child], trait_index[edge.parent]] = True
     params = estimate_initial_params(data, config.endophenotypes, mask, match_rust=False)
     params.outlier_kappa = kappa
+    pi = expected_outliers / max(1, n_traits)
     params.outlier_pis = [pi for _ in params.trait_names]
     chunk_size = max(1, data.meta.n_data_points())
     if inference == "analytic":
@@ -328,43 +331,72 @@ def tune_outliers(
             )
 
     scores: dict[tuple[float, float], float] = {}
+    fold_scores: dict[tuple[float, float], list[float]] = {}
 
     def _best_from_scores(
         kappa_grid: list[float],
-        pi_grid: list[float],
+        expected_grid: list[float],
     ) -> TuneResult:
-        best_kappa = kappa_grid[0]
-        best_pi = pi_grid[0]
-        best_score = float("-inf")
-        for (kappa, pi), score in scores.items():
-            if score > best_score:
-                best_kappa = kappa
-                best_pi = pi
-                best_score = score
+        means = {
+            key: float(np.mean(values))
+            for key, values in fold_scores.items()
+            if values
+        }
+        if not means:
+            chosen_kappa = kappa_grid[0]
+            chosen_expected = expected_grid[0]
+            return TuneResult(
+                kappa=chosen_kappa,
+                expected_outliers=chosen_expected,
+                pi=chosen_expected / max(1, len(config.gwas)),
+                score=float("-inf"),
+                scores={},
+                kappa_grid=list(kappa_grid),
+                expected_outliers_grid=list(expected_grid),
+            )
+        best_key, best_mean = max(means.items(), key=lambda item: item[1])
+        best_values = fold_scores[best_key]
+        best_std = float(np.std(best_values, ddof=1)) if len(best_values) > 1 else 0.0
+        best_se = best_std / math.sqrt(max(1, len(best_values)))
+        threshold = best_mean - best_se
+        candidates = [
+            (kappa, expected)
+            for (kappa, expected), mean in means.items()
+            if mean >= threshold
+        ]
+        candidates.sort(key=lambda item: (item[1], item[0]))
+        chosen_kappa, chosen_expected = candidates[0]
         return TuneResult(
-            kappa=best_kappa,
-            pi=best_pi,
-            score=best_score,
-            scores=scores,
+            kappa=chosen_kappa,
+            expected_outliers=chosen_expected,
+            pi=chosen_expected / max(1, len(config.gwas)),
+            score=means[(chosen_kappa, chosen_expected)],
+            scores=means,
             kappa_grid=list(kappa_grid),
-            pi_grid=list(pi_grid),
+            expected_outliers_grid=list(expected_grid),
         )
 
     def evaluate(
         kappa_grid: list[float],
-        pi_grid: list[float],
+        expected_grid: list[float],
         points: list[tuple[float, float]] | None = None,
     ) -> TuneResult:
         if points is None:
-            points = [(kappa, pi) for kappa in kappa_grid for pi in pi_grid]
+            points = [
+                (kappa, expected) for kappa in kappa_grid for expected in expected_grid
+            ]
         grid_start = time.perf_counter()
-        for kappa, pi in points:
+        n_traits = len(config.gwas)
+        for kappa, expected in points:
+            pi = expected / max(1, n_traits)
             point_start = time.perf_counter()
-            print(f"CV grid point kappa={kappa} pi={pi} start")
-            if (kappa, pi) in scores:
-                score = scores[(kappa, pi)]
+            print(
+                f"CV grid point kappa={kappa} expected_outliers={expected} (pi={pi:.6g}) start"
+            )
+            if (kappa, expected) in scores:
+                score = scores[(kappa, expected)]
             else:
-                fold_scores = []
+                fold_scores_point = []
                 for i_fold, fold in enumerate(folds, start=1):
                     fold_start = time.perf_counter()
                     print(f"  Fold {i_fold}/{len(folds)} start")
@@ -377,7 +409,7 @@ def tune_outliers(
                             train_ids,
                             inference,
                             kappa,
-                            pi,
+                            expected,
                             pos_data=pos_data,
                             pos_index=pos_index,
                         )
@@ -435,7 +467,7 @@ def tune_outliers(
                         f"    Scoring for fold {i_fold} "
                         f"took {time.perf_counter() - score_start:.2f}s"
                     )
-                    fold_scores.append(
+                    fold_scores_point.append(
                         _metric(
                             scores_pos,
                             scores_bg,
@@ -445,14 +477,15 @@ def tune_outliers(
                         )
                     )
                     print(f"  Fold {i_fold} done in {time.perf_counter() - fold_start:.2f}s")
-                score = float(np.mean(fold_scores))
-                scores[(kappa, pi)] = score
+                score = float(np.mean(fold_scores_point))
+                scores[(kappa, expected)] = score
+                fold_scores[(kappa, expected)] = fold_scores_point
             print(
-                f"CV grid point kappa={kappa} pi={pi} done in "
+                f"CV grid point kappa={kappa} expected_outliers={expected} done in "
                 f"{time.perf_counter() - point_start:.2f}s score={score:.4f}"
             )
         print(f"Completed CV grid in {time.perf_counter() - grid_start:.2f}s")
-        return _best_from_scores(kappa_grid, pi_grid)
+        return _best_from_scores(kappa_grid, expected_grid)
 
     def _expand_to_min(
         values: list[float],
@@ -476,11 +509,14 @@ def tune_outliers(
         return expanded
 
     kappa_grid = sorted(set(tune.kappa_grid))
-    pi_grid = sorted(set(tune.pi_grid))
+    expected_grid = sorted(set(tune.expected_outliers_grid))
     if not tune.kappa_grid_specified:
         kappa_grid = [config.outliers.kappa]
-    if not tune.pi_grid_specified:
-        pi_grid = [config.outliers.pi]
+    if not tune.expected_outliers_grid_specified:
+        if config.outliers.expected_outliers is not None:
+            expected_grid = [config.outliers.expected_outliers]
+        else:
+            expected_grid = [config.outliers.pi * max(1, len(config.gwas))]
     if tune.min_grid_length > 1:
         kappa_grid = _expand_to_min(
             kappa_grid,
@@ -489,14 +525,14 @@ def tune_outliers(
             1.0,
             float("inf"),
         )
-        pi_grid = _expand_to_min(
-            pi_grid,
+        expected_grid = _expand_to_min(
+            expected_grid,
             tune.min_grid_length,
             tune.max_grid_length,
             1e-6,
-            1.0 - 1e-6,
+            max(1e-6, len(config.gwas) - 1e-6),
         )
-    best = evaluate(kappa_grid, pi_grid)
+    best = evaluate(kappa_grid, expected_grid)
 
     expansions = 0
     max_expansions = tune.max_expansions
@@ -515,8 +551,8 @@ def tune_outliers(
             break
         best_score = _best_score()
         threshold = best_score * (1.0 - max(0.0, tune.boundary_margin))
-        top_row = pi_grid[-1]
-        bottom_row = pi_grid[0]
+        top_row = expected_grid[-1]
+        bottom_row = expected_grid[0]
         left_col = kappa_grid[0]
         right_col = kappa_grid[-1]
         row_top_hit = any(
@@ -528,41 +564,45 @@ def tune_outliers(
             for kappa in kappa_grid
         )
         col_left_hit = any(
-            scores.get((left_col, pi), float("-inf")) >= threshold
-            for pi in pi_grid
+            scores.get((left_col, expected), float("-inf")) >= threshold
+            for expected in expected_grid
         )
         col_right_hit = any(
-            scores.get((right_col, pi), float("-inf")) >= threshold
-            for pi in pi_grid
+            scores.get((right_col, expected), float("-inf")) >= threshold
+            for expected in expected_grid
         )
         if not tune.force_expansions:
             if not (row_top_hit or row_bottom_hit or col_left_hit or col_right_hit):
                 break
-        if len(kappa_grid) >= max_grid_size and len(pi_grid) >= max_grid_size:
+        if len(kappa_grid) >= max_grid_size and len(expected_grid) >= max_grid_size:
             print(
                 "Boundary optimum detected but max_grid_size reached "
-                f"(kappa={len(kappa_grid)}, pi={len(pi_grid)}; "
+                f"(kappa={len(kappa_grid)}, expected_outliers={len(expected_grid)}; "
                 f"max_grid_size={max_grid_size})."
             )
             break
         new_kappa_values: list[float] = []
-        new_pi_values: list[float] = []
+        new_expected_values: list[float] = []
         if tune.force_expansions:
             if len(kappa_grid) < max_grid_size:
                 new_kappa_values.append(kappa_grid[-1] * tune.expansion_factor)
-            if len(pi_grid) < max_grid_size:
-                candidate = min(1.0 - 1e-6, pi_grid[-1] * tune.expansion_factor)
-                if candidate > pi_grid[-1]:
-                    new_pi_values.append(candidate)
+            if len(expected_grid) < max_grid_size:
+                candidate = min(
+                    len(config.gwas) - 1e-6, expected_grid[-1] * tune.expansion_factor
+                )
+                if candidate > expected_grid[-1]:
+                    new_expected_values.append(candidate)
         else:
-            if row_bottom_hit and len(pi_grid) < max_grid_size:
-                candidate = max(1e-6, pi_grid[0] / tune.expansion_factor)
-                if candidate < pi_grid[0]:
-                    new_pi_values.append(candidate)
-            if row_top_hit and len(pi_grid) < max_grid_size:
-                candidate = min(1.0 - 1e-6, pi_grid[-1] * tune.expansion_factor)
-                if candidate > pi_grid[-1]:
-                    new_pi_values.append(candidate)
+            if row_bottom_hit and len(expected_grid) < max_grid_size:
+                candidate = max(1e-6, expected_grid[0] / tune.expansion_factor)
+                if candidate < expected_grid[0]:
+                    new_expected_values.append(candidate)
+            if row_top_hit and len(expected_grid) < max_grid_size:
+                candidate = min(
+                    len(config.gwas) - 1e-6, expected_grid[-1] * tune.expansion_factor
+                )
+                if candidate > expected_grid[-1]:
+                    new_expected_values.append(candidate)
             if col_left_hit and len(kappa_grid) < max_grid_size:
                 candidate = max(1.0, kappa_grid[0] / tune.expansion_factor)
                 if candidate < kappa_grid[0]:
@@ -570,35 +610,39 @@ def tune_outliers(
             if col_right_hit and len(kappa_grid) < max_grid_size:
                 new_kappa_values.append(kappa_grid[-1] * tune.expansion_factor)
         new_kappa_values = sorted(set(new_kappa_values))
-        new_pi_values = sorted(set(new_pi_values))
-        if not new_kappa_values and not new_pi_values:
+        new_expected_values = sorted(set(new_expected_values))
+        if not new_kappa_values and not new_expected_values:
             print(
                 "Boundary optimum detected but no new grid points could be added "
-                f"(kappa={len(kappa_grid)}, pi={len(pi_grid)}; "
+                f"(kappa={len(kappa_grid)}, expected_outliers={len(expected_grid)}; "
                 f"max_grid_size={max_grid_size})."
             )
             break
         kappa_grid = sorted(set(kappa_grid + new_kappa_values))
-        pi_grid = sorted(set(pi_grid + new_pi_values))
+        expected_grid = sorted(set(expected_grid + new_expected_values))
         expansions += 1
         points_to_eval: list[tuple[float, float]] = []
         for kappa in new_kappa_values:
-            for pi in pi_grid:
-                points_to_eval.append((kappa, pi))
-        for pi in new_pi_values:
+            for expected in expected_grid:
+                points_to_eval.append((kappa, expected))
+        for expected in new_expected_values:
             for kappa in kappa_grid:
-                points_to_eval.append((kappa, pi))
+                points_to_eval.append((kappa, expected))
         print(
             "Boundary optimum detected; expanding grid with new points "
-            f"kappa={new_kappa_values or '[]'} pi={new_pi_values or '[]'} "
+            f"kappa={new_kappa_values or '[]'} expected_outliers={new_expected_values or '[]'} "
             f"(expansion {expansions})."
         )
-        best = evaluate(kappa_grid, pi_grid, points=points_to_eval)
+        best = evaluate(kappa_grid, expected_grid, points=points_to_eval)
 
-    if (best.kappa == kappa_grid[0] or best.kappa == kappa_grid[-1]
-            or best.pi == pi_grid[0] or best.pi == pi_grid[-1]):
+    if (
+        best.kappa == kappa_grid[0]
+        or best.kappa == kappa_grid[-1]
+        or best.expected_outliers == expected_grid[0]
+        or best.expected_outliers == expected_grid[-1]
+    ):
         print(
-            "Warning: best (kappa, pi) lies on grid boundary. "
+            "Warning: best (kappa, expected_outliers) lies on grid boundary. "
             "Consider expanding the grid for more confidence."
         )
 

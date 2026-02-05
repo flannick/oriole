@@ -50,29 +50,32 @@ def plot_param_convergence(trace_file: str, out_file: str) -> None:
 def plot_cv_grid(
     scores: dict[tuple[float, float], float],
     kappa_grid: list[float],
-    pi_grid: list[float],
+    expected_outliers_grid: list[float],
     chosen: tuple[float, float],
     out_file: str,
 ) -> None:
     if not scores:
         return
     kappa_sorted = list(kappa_grid)
-    pi_sorted = list(pi_grid)
-    z = [[scores.get((k, p), float("nan")) for k in kappa_sorted] for p in pi_sorted]
+    expected_sorted = list(expected_outliers_grid)
+    z = [
+        [scores.get((k, expected), float("nan")) for k in kappa_sorted]
+        for expected in expected_sorted
+    ]
 
     fig, ax = plt.subplots(figsize=(6, 5))
     im = ax.imshow(z, aspect="auto", origin="lower")
     ax.set_xticks(range(len(kappa_sorted)))
     ax.set_xticklabels([str(k) for k in kappa_sorted], rotation=45, ha="right")
-    ax.set_yticks(range(len(pi_sorted)))
-    ax.set_yticklabels([str(p) for p in pi_sorted])
+    ax.set_yticks(range(len(expected_sorted)))
+    ax.set_yticklabels([str(p) for p in expected_sorted])
     ax.set_xlabel("kappa")
-    ax.set_ylabel("pi")
+    ax.set_ylabel("expected_outliers")
     ax.set_title("Cross-validation score grid")
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     if chosen in scores:
         j = kappa_sorted.index(chosen[0])
-        i = pi_sorted.index(chosen[1])
+        i = expected_sorted.index(chosen[1])
         ax.scatter([j], [i], s=80, facecolors="none", edgecolors="red", linewidths=2)
     fig.tight_layout()
     fig.savefig(out_file, dpi=150)

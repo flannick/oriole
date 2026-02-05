@@ -1140,7 +1140,23 @@ $\theta$ are relatively stable across plausible choices of $(\kappa,\pi)$, which
 is often the case when $\kappa$ and $\pi$ primarily modulate how outliers are
 downweighted rather than changing the coherent multi-trait signal.
 
-
+Because the prior outlier probability $\pi$ depends on the number of traits $q$, it is often more
+interpretable to parameterize the outlier rate in terms of the expected number of outlier traits per
+variant. Define
+\[
+\lambda_{\mathrm{out}} \equiv \mathrm{E}\left[\sum_{i=1}^q Z_i^j\right] = \sum_{i=1}^q \pi_i.
+\]
+In the common case of a shared outlier probability $\pi_i \equiv \pi$ for all traits, this reduces to
+$\lambda_{\mathrm{out}} = q\pi$ and hence $\pi = \lambda_{\mathrm{out}}/q$. This reparameterization makes
+hyperparameter choices stable as $q$ changes (e.g., when moving from $q\approx 10$ traits to
+$q\approx 50$ traits), since fixing $\lambda_{\mathrm{out}}$ fixes the prior expected number of outlier
+traits rather than implicitly allowing more outliers as additional traits are added. In practice, we
+therefore tune over a grid of $(\kappa,\lambda_{\mathrm{out}})$ and convert to $\pi=\lambda_{\mathrm{out}}/q$
+within each run. When the cross-validation objective is relatively flat across a range of values, we
+recommend a conservative tie-breaking rule analogous to the one-standard-error rule: among all
+grid points whose mean cross-validation score is within one estimated standard error of the best
+mean score, select the point with the smallest $\lambda_{\mathrm{out}}$ (fewest expected outlier traits)
+and, if tied, the smallest $\kappa$ (least aggressive variance inflation).
 
 
 \end{document}

@@ -99,8 +99,11 @@ might override them.
 - `enabled` (default: `false`) toggles the outlier model.
 - `kappa` (default: `4.0`) inflates variance for outlier traits; higher means
   more downweighting of isolated spikes.
-- `pi` (default: `0.16`) prior probability a trait is an outlier; higher makes
-  outlier handling more aggressive.
+- `expected_outliers` (default: `0.16 * n_traits`) expected number of outlier
+  traits per variant; higher makes outlier handling more aggressive.
+- `pi` (default: `0.16`) prior probability a trait is an outlier; use only if
+  you prefer the per-trait parameterization (mutually exclusive with
+  `expected_outliers`).
 - `pi_by_trait` (default: none) per-trait overrides of `pi`; use if some traits
   are noisier than others.
 - `max_enum_traits` (default: `12`) maximum traits for exact enumeration; lower
@@ -116,7 +119,8 @@ might override them.
 - `n_folds` (default: `5`) number of CV folds; higher is more stable but slower.
 - `seed` (default: `1`) RNG seed for fold splits and sampling.
 - `kappa_grid` (default: `[4.0]`) candidate kappas (centered on defaults).
-- `pi_grid` (default: `[0.16]`) candidate pis (centered on defaults).
+- `expected_outliers_grid` (default: `[0.16 * n_traits]`) candidate expected
+  outliers (centered on defaults).
 - `min_grid_length` (default: `10`) minimum grid length per axis before boundary
   expansion; expands both directions from the center value.
 - `max_grid_length` (default: `30`) max grid length per axis after expansion.
@@ -527,7 +531,7 @@ To enable, add an `[outliers]` block to your config:
 [outliers]
 enabled = true
 kappa = 4.0
-pi = 0.01
+expected_outliers = 0.03
 max_enum_traits = 12
 method = "auto" # auto, analytic, variational, or gibbs
 # Optional per-trait overrides:
@@ -536,7 +540,8 @@ method = "auto" # auto, analytic, variational, or gibbs
 
 Notes:
 - `kappa` must be >= 1.0 (values > 1.0 are required for any effect).
-- `pi` is the prior probability a trait is an outlier for a given variant.
+- `expected_outliers` is the expected number of outlier traits per variant.
+- `pi` is the per-trait prior; it is mutually exclusive with `expected_outliers`.
 - `pi_by_trait` overrides `pi` for named traits.
 - `max_enum_traits` controls when analytic enumeration is allowed.
 
@@ -564,12 +569,14 @@ Notes:
 - The marginal likelihood objective check is only available when outliers are
   disabled; otherwise ORIOLE falls back to the parameter criterion.
 
-### Tuning kappa and pi by cross-validation
+### Tuning kappa and expected outliers by cross-validation
 
-To select `(kappa, pi)` using cross-validation, add a `[tune_outliers]` block.
+To select `(kappa, expected_outliers)` using cross-validation, add a
+`[tune_outliers]` block.
 This uses a tail-focused metric based on the endophenotype score
-`S = m_E^T V_E^{-1} m_E` and picks the grid point that maximizes average fold
-performance.
+`S = m_E^T V_E^{-1} m_E` and uses a one-standard-error rule to choose the
+smallest `expected_outliers` and then the smallest `kappa` within one SE of
+the best mean score.
 
 ```toml
 [tune_outliers]
@@ -578,7 +585,7 @@ mode = "auto" # auto | full | fast | off
 n_folds = 5
 seed = 1
 kappa_grid = [4.0]
-pi_grid = [0.16]
+expected_outliers_grid = [1.44]
 min_grid_length = 10
 max_grid_length = 30
 genomewide_ids_file = "all_ids.txt"
@@ -598,17 +605,19 @@ Notes:
 - Tuning is off by default; set `enabled = true` and `mode` to `auto`, `fast`,
   `full`, or `on` to activate it. `on` is a shorthand for `auto`.
 - `mode="full"` retrains within each fold (slow but principled).
-- `mode="fast"` trains once and tunes `(kappa, pi)` with fixed parameters.
+- `mode="fast"` trains once and tunes `(kappa, expected_outliers)` with fixed
+  parameters.
 - `mode="auto"` uses `full` only for small, no-edge models; otherwise `fast`.
 - If any boundary value is within `boundary_margin` (fractional, default 1%)
   of the best score, the grid expands by adding a full row and/or column in the
   direction of that boundary. Expansion continues until no boundary is within
-  the margin or the grid reaches `max_grid_size` per axis. Set `max_expansions`
+  the margin or the grid reaches `max_grid_length` per axis. Set `max_expansions`
   to cap expansions (0 means no cap).
 - Set `force_expansions = true` to expand the upper bounds every time (ignoring
   boundary checks). This is only for validation/debugging.
 - If `mode` is not `off`, ORIOLE always runs CV. The center of the CV grid is
-  the specified `kappa`/`pi` if present; otherwise it uses the built‑in defaults.
+  the specified `kappa`/`expected_outliers` if present; otherwise it uses the
+  built‑in defaults.
 - The tuner errors out if the requested background/negative sample sizes exceed
   the available IDs, and it warns if a hard-negative file yields no usable IDs.
 
