@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ..data import GwasData
 from ..error import new_error
-from ..math.stats import Stats
+from ..math_utils.stats import Stats
 from ..params import Params
 from ..options.config import EndophenotypeConfig
 

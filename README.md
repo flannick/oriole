@@ -8,15 +8,13 @@ Gibbs sampling, multiple endophenotypes, and directed edges between traits (a DA
 
 ### 1) Install
 
+Tested with Python 3.10+ (recommended). Python 3.7 is not supported because
+`numpy>=1.23` requires a newer interpreter.
+
 ```bash
 # from src/oriole
+python -m pip install -U pip setuptools wheel
 python -m pip install -e .
-```
-
-If you have root (system install):
-
-```bash
-sudo python -m pip install -e .
 ```
 
 If you do not have root (virtual environment):
@@ -24,12 +22,27 @@ If you do not have root (virtual environment):
 ```bash
 python -m venv .venv
 source .venv/bin/activate
+python -m pip install -U pip setuptools wheel
 python -m pip install -e .
 ```
 
 Dependencies: `numpy`, `tomli`, `tomli-w`. Tests use `pytest`.
 
-### 2) Create a config
+Note: avoid naming a local package `math` (it shadows the Python stdlib). ORIOLE
+internal math helpers live under `oriole/math_utils/`.
+
+### 2) Run the included sample configs (recommended first run)
+
+The sample TOML configs under `tests/data/` use relative paths. The simplest
+way to run them is to change into that directory first:
+
+```bash
+cd tests/data
+oriole train -f sample_config_train.toml
+oriole classify -f sample_config_classify.toml
+```
+
+### 3) Create a config
 
 Copy a sample config and edit paths:
 
@@ -39,7 +52,7 @@ cp tests/data/sample_config_train.toml ./config.toml
 
 Update the GWAS file paths and the variant ID list.
 
-### 3) Train
+### 4) Train
 
 ```bash
 oriole train -f config.toml
@@ -51,7 +64,7 @@ Or via the wrapper script:
 python run_oriole.py train -f config.toml
 ```
 
-### 4) Classify
+### 5) Classify
 
 ```bash
 oriole classify -f config.toml
