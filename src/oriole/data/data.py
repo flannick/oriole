@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict
+import time
+import gzip
+import io
 
 import numpy as np
 import re
@@ -109,14 +112,28 @@ class IdData:
 def load_data(config: Config, action: Action) -> LoadedData:
     n_traits = len(config.gwas)
     if action == Action.TRAIN:
+        print(f"Loading training IDs from {config.train.ids_file}")
+        ids_start = time.perf_counter()
         beta_se_by_id = load_ids(config.train.ids_file, n_traits)
+        print(
+            f"Loaded {len(beta_se_by_id)} training IDs in "
+            f"{time.perf_counter() - ids_start:.2f}s"
+        )
     else:
+        print("Loading full GWAS for classification (all IDs).")
         beta_se_by_id = {}
 
     trait_names: list[str] = []
+    gwas_start = time.perf_counter()
     for i_trait, gwas in enumerate(config.gwas):
         trait_names.append(gwas.name)
+        trait_start = time.perf_counter()
         load_gwas(beta_se_by_id, gwas, n_traits, i_trait, action)
+        print(
+            f"Loaded GWAS {gwas.name} from {gwas.file} in "
+            f"{time.perf_counter() - trait_start:.2f}s"
+        )
+    print(f"Finished GWAS load in {time.perf_counter() - gwas_start:.2f}s")
 
     n_data_points = len(beta_se_by_id)
     var_ids: list[str] = []
@@ -166,7 +183,7 @@ def load_ids(ids_file: str, n_traits: int) -> Dict[str, IdData]:
     this_might_still_be_header = True
     splitter = re.compile(r"[;\t, ]+")
     try:
-        with open(ids_file, "r", encoding="utf-8") as handle:
+        with _open_text(ids_file) as handle:
             for line in handle:
                 line = line.strip()
                 if not line:
@@ -213,7 +230,7 @@ def load_gwas(
         id=default_cols.VAR_ID, effect=default_cols.BETA, se=default_cols.SE
     )
     try:
-        with open(file, "r", encoding="utf-8") as handle:
+        with _open_text(file) as handle:
             reader = GwasReader(handle, cols)
             for record in reader:
                 var_id = record.var_id
@@ -231,6 +248,15 @@ def load_gwas(
 
 def new_beta_se_list(n_traits: int) -> list[BetaSe]:
     return [BetaSe(beta=float("nan"), se=float("nan")) for _ in range(n_traits)]
+
+
+def _open_text(path: str) -> io.TextIOBase:
+    raw = open(path, "rb")
+    magic = raw.read(2)
+    raw.seek(0)
+    if magic == b\"\\x1f\\x8b\":
+        return gzip.open(raw, "rt", encoding="utf-8")
+    return io.TextIOWrapper(raw, encoding="utf-8")
 
 
 def load_data_for_ids(config: "Config", ids: list[str]) -> GwasData:
