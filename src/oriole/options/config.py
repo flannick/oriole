@@ -36,6 +36,11 @@ class TrainConfig:
     n_iterations_per_round: int
     n_rounds: int
     normalize_mu_to_one: bool
+    learn_mu_tau: bool
+    mu: float
+    tau: float
+    mu_specified: bool
+    tau_specified: bool
     params_trace_file: Optional[str] = None
     t_pinned: Optional[bool] = None
     plot_convergence_out_file: Optional[str] = None
@@ -55,6 +60,10 @@ class ClassifyConfig:
     out_file: str
     trace_ids: Optional[list[str]] = None
     t_pinned: Optional[bool] = None
+    mu_specified: bool = False
+    tau_specified: bool = False
+    mu: float = 0.0
+    tau: float = 1e6
 
 
 @dataclass
@@ -129,7 +138,7 @@ def _gwas_cols_from_dict(value: dict | None) -> Optional[GwasCols]:
 def _params_override_from_dict(value: dict | None) -> Optional[ParamsOverride]:
     if value is None:
         return None
-    return ParamsOverride(
+    override = ParamsOverride(
         mu=value.get("mu"),
         tau=value.get("tau"),
         mus=value.get("mus"),
@@ -137,6 +146,16 @@ def _params_override_from_dict(value: dict | None) -> Optional[ParamsOverride]:
         mus_by_name=value.get("mus_by_name"),
         taus_by_name=value.get("taus_by_name"),
     )
+    if (
+        override.mu is None
+        and override.tau is None
+        and override.mus is None
+        and override.taus is None
+        and not override.mus_by_name
+        and not override.taus_by_name
+    ):
+        return None
+    return override
 
 
 def _endophenotypes_from_dicts(value: list[dict] | None) -> list[EndophenotypeConfig]:
@@ -255,13 +274,20 @@ def load_config(path: str) -> Config:
     train_data = data.get("train")
     if not train_data or "ids_file" not in train_data:
         raise MocasaError(ErrorKind.TOML_DE, "Missing [train].ids_file in config.")
+    mu_specified = "mu" in train_data
+    tau_specified = "tau" in train_data
     train = TrainConfig(
         ids_file=train_data["ids_file"],
         n_steps_burn_in=train_data.get("n_steps_burn_in", 1000),
         n_samples_per_iteration=train_data.get("n_samples_per_iteration", 100),
         n_iterations_per_round=train_data.get("n_iterations_per_round", 10),
         n_rounds=train_data.get("n_rounds", 1),
-        normalize_mu_to_one=train_data.get("normalize_mu_to_one", True),
+        normalize_mu_to_one=train_data.get("normalize_mu_to_one", False),
+        learn_mu_tau=bool(train_data.get("learn_mu_tau", False)),
+        mu=float(train_data.get("mu", 0.0)),
+        tau=float(train_data.get("tau", 1.0)),
+        mu_specified=mu_specified,
+        tau_specified=tau_specified,
         params_trace_file=train_data.get("params_trace_file"),
         t_pinned=train_data.get("t_pinned"),
         plot_convergence_out_file=train_data.get("plot_convergence_out_file"),
@@ -277,14 +303,27 @@ def load_config(path: str) -> Config:
         classify_data = {}
     else:
         classify_data = classify_data.copy()
+    classify_mu_specified = "mu" in classify_data
+    classify_tau_specified = "tau" in classify_data
+    classify_mu = float(classify_data.get("mu", 0.0))
+    classify_tau = float(classify_data.get("tau", 1e6))
     classify_data["params_override"] = _params_override_from_dict(
         classify_data.get("params_override")
     )
+    if classify_data["params_override"] is None and (classify_mu_specified or classify_tau_specified):
+        classify_data["params_override"] = ParamsOverride(
+            mu=classify_mu if classify_mu_specified else None,
+            tau=classify_tau if classify_tau_specified else None,
+        )
     classify_data.setdefault("n_steps_burn_in", 1000)
     classify_data.setdefault("n_samples", 1000)
     classify_data.setdefault("out_file", "classify_out.tsv")
     classify_data.setdefault("trace_ids", [])
     classify_data.setdefault("t_pinned", None)
+    classify_data.setdefault("mu_specified", classify_mu_specified)
+    classify_data.setdefault("tau_specified", classify_tau_specified)
+    classify_data.setdefault("mu", classify_mu)
+    classify_data.setdefault("tau", classify_tau)
     classify = ClassifyConfig(**classify_data)
     return Config(
         files=files,
@@ -313,6 +352,8 @@ def dump_config(config: Config) -> str:
             "out_file": item.out_file,
             "trace_ids": item.trace_ids,
             "t_pinned": item.t_pinned,
+            "mu": item.mu,
+            "tau": item.tau,
         }
         if item.params_override is not None:
             data["params_override"] = {
@@ -368,6 +409,9 @@ def dump_config(config: Config) -> str:
             "n_iterations_per_round": config.train.n_iterations_per_round,
             "n_rounds": config.train.n_rounds,
             "normalize_mu_to_one": config.train.normalize_mu_to_one,
+            "learn_mu_tau": config.train.learn_mu_tau,
+            "mu": config.train.mu,
+            "tau": config.train.tau,
             "params_trace_file": config.train.params_trace_file,
             "t_pinned": config.train.t_pinned,
             "plot_convergence_out_file": config.train.plot_convergence_out_file,

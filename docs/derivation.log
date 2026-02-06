@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2021) (preloaded format=pdflatex 2021.11.4)  5 FEB 2026 18:20
+This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2021) (preloaded format=pdflatex 2021.11.4)  6 FEB 2026 09:22
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -665,37 +665,37 @@ e
 [1
 
 {/usr/local/texlive/2021/texmf-var/fonts/map/pdftex/updmap/pdftex.map}]
-[2] [3] [4] [5] [6]
-Overfull \hbox (22.43523pt too wide) detected at line 578
+[2] [3] [4] [5] [6] [7]
+Overfull \hbox (22.43523pt too wide) detected at line 604
 \OT1/cmr/bx/n/10.95 V[] \OT1/cmr/m/n/10.95 = [][] \OML/cmm/m/it/10.95 ;  \OT1/c
 mr/bx/n/10.95 m[] \OT1/cmr/m/n/10.95 = \OT1/cmr/bx/n/10.95 V[] [] \OML/cmm/m/it
 /10.95 :
  []
 
-[7]
-Overfull \hbox (22.55205pt too wide) in paragraph at lines 680--684
+[8]
+Overfull \hbox (22.55205pt too wide) in paragraph at lines 706--710
 []\OT1/cmr/m/n/10.95 The ob-ser-va-tion model re-mains con-di-tion-ally in-de-p
 en-dent given $\OT1/cmr/bx/n/10.95 T[]$\OT1/cmr/m/n/10.95 . Let $\OT1/cmr/bx/n/
 10.95 S[] \OT1/cmr/m/n/10.95 = [] []$.
  []
 
-[8] [9] [10]
-Overfull \hbox (3.81317pt too wide) in paragraph at lines 931--937
+[9] [10] [11]
+Overfull \hbox (3.81317pt too wide) in paragraph at lines 957--963
 \OT1/cmr/m/n/10.95 the weighted cross-products $E []$ and $E []$. 
  []
 
-[11] [12] [13] [14] [15]
-Overfull \hbox (6.6205pt too wide) in paragraph at lines 1296--1300
+[12] [13] [14] [15] [16]
+Overfull \hbox (6.6205pt too wide) in paragraph at lines 1322--1326
 \OT1/cmr/m/n/10.95 The cor-re-spond-ing $([]\OML/cmm/m/it/10.95 ; []; z; p\OT1/
 cmr/m/n/10.95 )$ val-ues are com-puted as in the base-line model us-ing $[]$ an
 d $[]([])$. 
  []
 
-[16] [17] (./derivation.aux) ) 
+[17] [18] (./derivation.aux) ) 
 Here is how much of TeX's memory you used:
  16514 strings out of 478994
  363137 string characters out of 5858184
- 665203 words of memory out of 5000000
+ 666474 words of memory out of 5000000
  33670 multiletter control sequences out of 15000+600000
  414527 words of font info for 65 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
@@ -719,10 +719,10 @@ mr6.pfb></usr/local/texlive/2021/texmf-dist/fonts/type1/public/amsfonts/cm/cmr8
 pfb></usr/local/texlive/2021/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy6.pf
 b></usr/local/texlive/2021/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb>
 </usr/local/texlive/2021/texmf-dist/fonts/type1/public/amsfonts/cm/cmti10.pfb>
-Output written on derivation.pdf (17 pages, 276312 bytes).
+Output written on derivation.pdf (18 pages, 278593 bytes).
 PDF statistics:
- 138 PDF objects out of 1000 (max. 8388607)
- 99 compressed objects within 1 object stream
+ 142 PDF objects out of 1000 (max. 8388607)
+ 101 compressed objects within 2 object streams
  0 named destinations out of 1000 (max. 500000)
  13 words of extra memory for PDF output out of 10000 (max. 10000000)
 

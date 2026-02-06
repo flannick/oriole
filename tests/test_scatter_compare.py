@@ -58,6 +58,7 @@ n_samples_per_iteration = 5
 n_iterations_per_round = 2
 n_rounds = 1
 normalize_mu_to_one = true
+learn_mu_tau = true
 
 [classify]
 params_override = {{}}

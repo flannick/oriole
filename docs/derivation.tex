@@ -251,6 +251,32 @@ to compute the sufficient statistics
 which we can compute either analytically or via probabilistic
 inference in the Bayesian network using the current parameters $\mathbf{\theta}^{(t)}$.
 
+\paragraph{Fixing the endophenotype prior parameters $\mu$ and $\tau$ for genome-wide analyses.}
+Although the EM objective admits updates for the prior parameters $\mu$ and $\tau$, in typical
+genome-wide applications we do not estimate these quantities from the curated training variants.
+
+The parameters $\mu$ and $\tau$ describe the population distribution of endophenotype effects
+$E$ across variants, whereas our training set is intentionally enriched for variants that match the
+phenotypic profile and is therefore not representative of the genome-wide distribution. Estimating
+$\mu$ and $\tau$ from such positives-only training data induces an informative prior that shifts the
+posterior of $E$ toward $\mu$ for variants with weak likelihood information. For example, in the
+single-endophenotype model,
+\[
+m_E^j
+=
+\left(\frac{1}{\tau^2} + \sum_i \frac{\beta_i^2}{\sigma_i^2+(s_i^j)^2}\right)^{-1}
+\left(\frac{\mu}{\tau^2} + \sum_i \frac{\beta_i o_i^j}{\sigma_i^2+(s_i^j)^2}\right),
+\qquad
+V_E^j
+=
+\left(\frac{1}{\tau^2} + \sum_i \frac{\beta_i^2}{\sigma_i^2+(s_i^j)^2}\right)^{-1},
+\]
+so when the likelihood information is small the posterior mean approaches $m_E^j\to\mu$ and the
+posterior $z$-score $m_E^j/\sqrt{V_E^j}$ approaches $\mu/\tau$. For genome-wide analyses
+we therefore fix $\mu=0$ and use a weak (approximately flat) prior by taking $\tau$ to be very large
+(e.g., $\tau\approx 10^6$ in the units of $E$), and we rely on likelihood-based GLS summary
+statistics for $E$ for downstream post-GWAS workflows.
+
 \section{Analytic derivation of needed expectations}
 
 In the EM algorithm, the M-step updates require the sufficient

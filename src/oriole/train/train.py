@@ -179,6 +179,23 @@ def train(
     if config.outliers.enabled:
         params.outlier_kappa = config.outliers.kappa
         params.outlier_pis = build_outlier_pis(config, params.trait_names)
+    if config.train.mu_specified or config.train.tau_specified:
+        print(
+            "Warning: train.mu/tau specified in config. "
+            "These override recommended defaults (mu=0, tau=1)."
+        )
+    if config.train.learn_mu_tau:
+        if config.train.mu_specified or config.train.tau_specified:
+            print("Warning: learn_mu_tau=true; train.mu/tau will be ignored.")
+    else:
+        if config.train.normalize_mu_to_one:
+            print(
+                "Warning: normalize_mu_to_one ignored because learn_mu_tau=false "
+                "and mu is fixed."
+            )
+            config.train.normalize_mu_to_one = False
+        params.mus = [config.train.mu for _ in params.endo_names]
+        params.taus = [config.train.tau for _ in params.endo_names]
     print(params)
 
     if inference in ("analytic", "variational"):
@@ -213,6 +230,9 @@ def train(
                     )
             else:
                 params = estimate_params_analytical(data, params, chunk_size, mask, parent_mask)
+            if not config.train.learn_mu_tau:
+                params.mus = [config.train.mu for _ in params.endo_names]
+                params.taus = [config.train.tau for _ in params.endo_names]
             iter_elapsed = time.perf_counter() - iter_start
             total_time += iter_elapsed
             print(

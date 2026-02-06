@@ -43,6 +43,7 @@ se = "SE"
 [train]
 ids_file = "{ids.as_posix()}"
 normalize_mu_to_one = true
+learn_mu_tau = true
 n_rounds = 1
 n_iterations_per_round = 1
 n_samples_per_iteration = 1

@@ -16,17 +16,86 @@ def _solve_spd(mat: np.ndarray, rhs: np.ndarray) -> np.ndarray:
     return np.linalg.solve(chol.T, y)
 
 
-def _trait_matrices(params: Params) -> tuple[np.ndarray, np.ndarray]:
+def trait_matrices_from_sigma(params: Params, sigma2: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     beta = np.asarray(params.betas, dtype=float)
-    sigma2 = np.asarray(params.sigmas, dtype=float) ** 2
+    sigma2_arr = np.asarray(sigma2, dtype=float)
     trait_edges = np.asarray(params.trait_edges, dtype=float)
-    n_traits = len(sigma2)
+    n_traits = len(sigma2_arr)
     l_mat = np.eye(n_traits, dtype=float) - trait_edges
     m_mat = np.linalg.solve(l_mat, beta)
-    d_mat = np.diag(sigma2)
+    d_mat = np.diag(sigma2_arr)
     l_inv = np.linalg.solve(l_mat, np.eye(n_traits))
     sigma_t = l_inv @ d_mat @ l_inv.T
     return m_mat, sigma_t
+
+
+def _trait_matrices(params: Params) -> tuple[np.ndarray, np.ndarray]:
+    sigma2 = np.asarray(params.sigmas, dtype=float) ** 2
+    return trait_matrices_from_sigma(params, sigma2)
+
+
+def gls_information_and_score(
+    m_mat: np.ndarray, solve_v, o: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    v_inv_m = solve_v(m_mat)
+    i_mat = m_mat.T @ v_inv_m
+    v_inv_o = solve_v(o)
+    b_vec = m_mat.T @ v_inv_o
+    return i_mat, b_vec
+
+
+def gls_beta_se_from_Ib(
+    i_mat: np.ndarray, b_vec: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    try:
+        chol = np.linalg.cholesky(i_mat)
+        y = np.linalg.solve(chol, b_vec)
+        e_hat = np.linalg.solve(chol.T, y)
+        cov = np.linalg.solve(chol.T, np.linalg.solve(chol, np.eye(i_mat.shape[0])))
+    except np.linalg.LinAlgError:
+        cov = np.linalg.pinv(i_mat)
+        e_hat = cov @ b_vec
+    se = np.sqrt(np.maximum(np.diag(cov), 0.0))
+    return e_hat, se, cov
+
+
+def gls_endophenotype_stats_chunk(
+    params: Params,
+    betas_obs: np.ndarray,
+    ses_obs: np.ndarray,
+    sigma2_override: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    n_vars = betas_obs.shape[0]
+    n_endos = params.n_endos()
+    e_beta_gls = np.zeros((n_vars, n_endos), dtype=float)
+    e_se_gls = np.zeros((n_vars, n_endos), dtype=float)
+    sigma2 = (
+        np.asarray(sigma2_override, dtype=float)
+        if sigma2_override is not None
+        else np.asarray(params.sigmas, dtype=float) ** 2
+    )
+    if _no_trait_edges(params):
+        b_mat = np.asarray(params.betas, dtype=float)
+        for i in range(n_vars):
+            o = betas_obs[i]
+            v = sigma2 + ses_obs[i] ** 2
+            weights = 1.0 / v
+            i_mat = b_mat.T @ (b_mat * weights[:, None])
+            b_vec = b_mat.T @ (o * weights)
+            e_hat, se, _ = gls_beta_se_from_Ib(i_mat, b_vec)
+            e_beta_gls[i] = e_hat
+            e_se_gls[i] = se
+        return e_beta_gls, e_se_gls
+    m_mat, sigma_t = trait_matrices_from_sigma(params, sigma2)
+    for i in range(n_vars):
+        o = betas_obs[i]
+        v = sigma_t + np.diag(ses_obs[i] ** 2)
+        solve_v = lambda rhs: _solve_spd(v, rhs)
+        i_mat, b_vec = gls_information_and_score(m_mat, solve_v, o)
+        e_hat, se, _ = gls_beta_se_from_Ib(i_mat, b_vec)
+        e_beta_gls[i] = e_hat
+        e_se_gls[i] = se
+    return e_beta_gls, e_se_gls
 
 
 def _posterior_mean_cov(

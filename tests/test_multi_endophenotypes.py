@@ -77,15 +77,23 @@ def test_multi_e_classify_analytical(tmp_path):
     with out_file.open("r", encoding="utf-8") as handle:
         header = handle.readline().strip("\n")
         parts = header.split("\t")
-        assert parts[:7] == [
+        assert parts[:15] == [
             "id",
-            "E1_mean_samp",
-            "E1_std_samp",
+            "E1_mean_post",
+            "E1_std_post",
             "E1_mean_calc",
-            "E2_mean_samp",
-            "E2_std_samp",
+            "E1_beta_gls",
+            "E1_se_gls",
+            "E1_z_gls",
+            "E1_p_gls",
+            "E2_mean_post",
+            "E2_std_post",
             "E2_mean_calc",
+            "E2_beta_gls",
+            "E2_se_gls",
+            "E2_z_gls",
+            "E2_p_gls",
         ]
-        assert parts[7:] == ["trait1", "trait2"]
+        assert parts[15:] == ["trait1", "trait2"]
         n_rows = sum(1 for _ in handle)
     assert n_rows == 3

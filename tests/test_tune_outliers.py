@@ -105,6 +105,7 @@ n_samples_per_iteration = 10
 n_iterations_per_round = 1
 n_rounds = 1
 normalize_mu_to_one = true
+learn_mu_tau = true
 """
     )
 

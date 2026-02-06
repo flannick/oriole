@@ -60,7 +60,9 @@ def test_outliers_train_classify_analytic(tmp_path):
 
     with out_file.open("r", encoding="utf-8") as handle:
         header = handle.readline().strip("\n")
-        assert header.startswith("id\tE_mean_samp\tE_std_samp\tE_mean_calc")
+        assert header.startswith(
+            "id\tE_mean_post\tE_std_post\tE_mean_calc\tE_beta_gls\tE_se_gls\tE_z_gls\tE_p_gls"
+        )
         n_rows = sum(1 for _ in handle)
     assert n_rows == 1000
 
@@ -113,6 +115,8 @@ def test_outliers_train_classify_variational(tmp_path):
 
     with out_file.open("r", encoding="utf-8") as handle:
         header = handle.readline().strip("\n")
-        assert header.startswith("id\tE_mean_samp\tE_std_samp\tE_mean_calc")
+        assert header.startswith(
+            "id\tE_mean_post\tE_std_post\tE_mean_calc\tE_beta_gls\tE_se_gls\tE_z_gls\tE_p_gls"
+        )
         n_rows = sum(1 for _ in handle)
     assert n_rows == 5

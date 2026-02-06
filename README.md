@@ -160,7 +160,12 @@ might override them.
 - `n_iterations_per_round` (default: `10`) Gibbs iterations per EM round.
 - `n_rounds` (default: `1`) number of EM iterations; higher improves fit but
   increases runtime.
-- `normalize_mu_to_one` (default: `true`) keeps endophenotype mean scaled.
+- `normalize_mu_to_one` (default: `false`) keeps endophenotype mean scaled; only
+  meaningful when `learn_mu_tau = true`.
+- `learn_mu_tau` (default: `false`) learns `mu` and `tau` during training; the
+  recommended default is to keep them fixed.
+- `mu` (default: `0.0`) fixed prior mean for endophenotypes when not learned.
+- `tau` (default: `1.0`) fixed prior std for endophenotypes when not learned.
 - `params_trace_file` (default: none) explicit trace output path.
 - `t_pinned` (default: none) optionally pins the trait residual variance.
 - `plot_convergence_out_file` (default: none) writes a convergence plot.
@@ -176,6 +181,10 @@ might override them.
 - `params_override` (default: none) overrides parameters during classification.
   Supports `mu`, `tau`, `mus`, `taus`, `mus_by_name`, `taus_by_name`; use to
   test sensitivity without retraining.
+- `mu` (default: `0.0`) prior mean used during classification when no override
+  is specified.
+- `tau` (default: `1e6`) prior std used during classification when no override
+  is specified (effectively non-informative).
 - `n_steps_burn_in` (default: `1000`) Gibbs burn-in steps; only used for Gibbs.
 - `n_samples` (default: `1000`) Gibbs samples for classification.
 - `out_file` (default: `classify_out.tsv`) output scores path.
@@ -342,9 +351,9 @@ n_samples_per_iteration = 100
 n_iterations_per_round = 100
 n_rounds = 10
 normalize_mu_to_one = true
+learn_mu_tau = true
 
 [classify]
-params_override = {}
 n_steps_burn_in = 50
 n_samples = 1000
 out_file = "path/to/output.tsv"
@@ -562,6 +571,25 @@ Inference controls:
 - Use `--inference` to force `analytic`, `variational`, or `gibbs`.
 - `auto` uses variational when outliers are enabled; otherwise it uses analytic.
 - `--gibbs` is a shortcut for `--inference gibbs`.
+
+### GWAS-style GLS outputs for endophenotypes
+
+Classification outputs now include GWAS-style GLS summaries for each endophenotype:
+`{endo}_beta_gls`, `{endo}_se_gls`, `{endo}_z_gls`, `{endo}_p_gls`.
+These are derived from the collapsed likelihood `p(O | E)` by treating `E` as a
+per-variant parameter and computing a generalized least squares estimate.
+
+Intuition:
+- `*_mean_*` columns are Bayesian posterior summaries that include the prior.
+- `*_gls` columns are plug-in GLS summaries that are more comparable to standard
+  GWAS effect estimates (no prior shrinkage in the GLS step).
+
+Outlier handling:
+- `analytic` enumeration computes GLS by averaging over `Z` states with exact
+  posterior weights.
+- `variational` uses an effective covariance with `E[1/c(Z)]` to compute GLS.
+- `gibbs` uses the mean sampled `Z` (per trait) to build an effective covariance;
+  this is a Monte Carlo approximation consistent with the sampling run.
 
 ### Early stopping for training
 

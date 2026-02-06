@@ -175,18 +175,29 @@ def _train_params_for_ids(
     for edge in config.trait_edges:
         parent_mask[trait_index[edge.child], trait_index[edge.parent]] = True
     params = estimate_initial_params(data, config.endophenotypes, mask, match_rust=False)
+    if not config.train.learn_mu_tau:
+        params.mus = [config.train.mu for _ in params.endo_names]
+        params.taus = [config.train.tau for _ in params.endo_names]
     params.outlier_kappa = kappa
     pi = expected_outliers / max(1, n_traits)
     params.outlier_pis = [pi for _ in params.trait_names]
     chunk_size = max(1, data.meta.n_data_points())
     if inference == "analytic":
-        return estimate_params_analytical_outliers(
+        params = estimate_params_analytical_outliers(
             LoadedDataShim(data), params, chunk_size, mask, parent_mask
         )
+        if not config.train.learn_mu_tau:
+            params.mus = [config.train.mu for _ in params.endo_names]
+            params.taus = [config.train.tau for _ in params.endo_names]
+        return params
     if inference == "variational":
-        return estimate_params_variational_outliers(
+        params = estimate_params_variational_outliers(
             LoadedDataShim(data), params, chunk_size, mask, parent_mask
         )
+        if not config.train.learn_mu_tau:
+            params.mus = [config.train.mu for _ in params.endo_names]
+            params.taus = [config.train.tau for _ in params.endo_names]
+        return params
     raise ValueError("Full tuning with gibbs inference is not supported.")
 
 
@@ -314,6 +325,9 @@ def tune_outliers(
         for edge in config.trait_edges:
             parent_mask[trait_index[edge.child], trait_index[edge.parent]] = True
         base_params = estimate_initial_params(base_data, config.endophenotypes, mask)
+        if not config.train.learn_mu_tau:
+            base_params.mus = [config.train.mu for _ in base_params.endo_names]
+            base_params.taus = [config.train.tau for _ in base_params.endo_names]
         base_params.outlier_kappa = config.outliers.kappa
         base_params.outlier_pis = [config.outliers.pi for _ in base_params.trait_names]
         chunk_size = max(1, base_data.meta.n_data_points())
@@ -329,6 +343,9 @@ def tune_outliers(
             base_params = estimate_params_variational_outliers(
                 LoadedDataShim(base_data), base_params, chunk_size, mask, parent_mask
             )
+        if not config.train.learn_mu_tau:
+            base_params.mus = [config.train.mu for _ in base_params.endo_names]
+            base_params.taus = [config.train.tau for _ in base_params.endo_names]
 
     scores: dict[tuple[float, float], float] = {}
     fold_scores: dict[tuple[float, float], list[float]] = {}

@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from .analytical import analytical_classification, calculate_mu_vec
-from .outliers_analytic import outliers_analytic_classification
-from .outliers_variational import outliers_variational_classification
+from .analytical import (
+    analytical_classification,
+    calculate_mu_vec,
+    gls_endophenotype_stats_chunk,
+)
+from .outliers_analytic import outliers_analytic_classification, outliers_analytic_gls
+from .outliers_variational import outliers_variational_classification, outliers_variational_gls
 from ..data import GwasData
 from ..options.config import ClassifyConfig
 from ..params import Params
@@ -27,9 +31,17 @@ class MessageToWorker:
 
 
 class Classification:
-    def __init__(self, sampled, e_mean_calculated: float) -> None:
+    def __init__(
+        self,
+        sampled,
+        e_mean_calculated: np.ndarray,
+        e_beta_gls: np.ndarray,
+        e_se_gls: np.ndarray,
+    ) -> None:
         self.sampled = sampled
         self.e_mean_calculated = e_mean_calculated
+        self.e_beta_gls = e_beta_gls
+        self.e_se_gls = e_se_gls
 
 
 class MessageToCentral:
@@ -106,14 +118,29 @@ def classify_worker(
                         list(data_point.betas[0]),
                         list(data_point.ses[0]),
                     )
+                    e_beta_gls, e_se_gls = outliers_analytic_gls(
+                        params_reduced,
+                        list(data_point.betas[0]),
+                        list(data_point.ses[0]),
+                    )
                 else:
                     sampled = analytical_classification(
                         params_reduced,
                         list(data_point.betas[0]),
                         list(data_point.ses[0]),
                     )
+                    e_beta_gls, e_se_gls = gls_endophenotype_stats_chunk(
+                        params_reduced, data_point.betas, data_point.ses
+                    )
+                    e_beta_gls = e_beta_gls[0]
+                    e_se_gls = e_se_gls[0]
             elif inference == "variational":
                 sampled = outliers_variational_classification(
+                    params_reduced,
+                    list(data_point.betas[0]),
+                    list(data_point.ses[0]),
+                )
+                e_beta_gls, e_se_gls = outliers_variational_gls(
                     params_reduced,
                     list(data_point.betas[0]),
                     list(data_point.ses[0]),
@@ -151,6 +178,23 @@ def classify_worker(
                     t_pinned,
                 )
                 sampled = sampler.var_stats.calculate_classification()
+                if outliers_enabled:
+                    mean_z = sampler.var_stats.z_sums[0] / max(1, sampler.var_stats.n)
+                    kappa2 = params_reduced.outlier_kappa ** 2
+                    alpha = (1.0 - mean_z) + (mean_z / kappa2)
+                    sigma2_eff = (np.asarray(params_reduced.sigmas, dtype=float) ** 2) / alpha
+                    e_beta_gls, e_se_gls = gls_endophenotype_stats_chunk(
+                        params_reduced,
+                        data_point.betas,
+                        data_point.ses,
+                        sigma2_override=sigma2_eff,
+                    )
+                else:
+                    e_beta_gls, e_se_gls = gls_endophenotype_stats_chunk(
+                        params_reduced, data_point.betas, data_point.ses
+                    )
+                e_beta_gls = e_beta_gls[0]
+                e_se_gls = e_se_gls[0]
             if inference == "analytic" and not outliers_enabled:
                 mu_calculated = calculate_mu_vec(
                     params_reduced,
@@ -159,7 +203,12 @@ def classify_worker(
                 )
             else:
                 mu_calculated = sampled.e_mean
-            classification = Classification(sampled=sampled, e_mean_calculated=mu_calculated)
+            classification = Classification(
+                sampled=sampled,
+                e_mean_calculated=mu_calculated,
+                e_beta_gls=e_beta_gls,
+                e_se_gls=e_se_gls,
+            )
             in_queue.put(MessageToCentral(i_thread, classification))
             if inference == "gibbs":
                 if trace_handle is not None:

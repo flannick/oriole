@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 
@@ -11,14 +12,21 @@ from ..error import new_error
 from ..options.action import Action
 from ..options.config import ClassifyConfig, Config
 from ..options.inference import resolve_inference
-from ..params import Params, read_params_from_file
+from ..params import Params, ParamsOverride, read_params_from_file
 from ..sample.var_stats import SampledClassification
 from ..util.threads import Threads, TaskQueueObserver
 from .worker import Classification, MessageToCentral, MessageToWorker, ClassifyWorkerLauncher
-from .analytical import analytical_classification_chunk, calculate_mu_chunk
+from .analytical import (
+    analytical_classification_chunk,
+    calculate_mu_chunk,
+    gls_endophenotype_stats_chunk,
+)
 from .gibbs_vectorized import gibbs_classification_chunk
-from .outliers_analytic import outliers_analytic_classification_chunk
-from .outliers_variational import outliers_variational_classification_chunk
+from .outliers_analytic import outliers_analytic_classification_chunk, outliers_analytic_gls_chunk
+from .outliers_variational import (
+    outliers_variational_classification_chunk,
+    outliers_variational_gls_chunk,
+)
 
 
 class Observer(TaskQueueObserver):
@@ -75,9 +83,22 @@ def classify_or_check(
             )
         )
     print(f"Read from file mus = {params.mus}, taus = {params.taus}")
+    if config.classify.mu_specified or config.classify.tau_specified:
+        print(
+            "Warning: classify mu/tau specified in config. "
+            "These override recommended defaults (mu=0, tau=1e6)."
+        )
     if config.classify.params_override is not None:
         params = params.plus_overwrite(config.classify.params_override)
         print(f"After overwrite, mus = {params.mus}, taus = {params.taus}")
+    else:
+        params = params.plus_overwrite(
+            ParamsOverride(
+                mus=[config.classify.mu for _ in params.endo_names],
+                taus=[config.classify.tau for _ in params.endo_names],
+            )
+        )
+        print(f"After default override, mus = {params.mus}, taus = {params.taus}")
     data = load_data(config, Action.CLASSIFY)
     if dry:
         print("User picked dry run only, so doing nothing.")
@@ -181,16 +202,27 @@ def classify_vectorized(
                         )[0]
                     else:
                         mu_calc = sampled.e_mean[0]
-                    classification = Classification(sampled, mu_calc)
+                    e_beta_gls, e_se_gls = gls_endophenotype_stats_chunk(
+                        params_reduced, single.betas, single.ses
+                    )
+                    classification = Classification(
+                        sampled,
+                        mu_calc,
+                        e_beta_gls[0],
+                        e_se_gls[0],
+                    )
                     handle.write(format_entry(single.meta.var_ids[0], classification))
                 continue
 
             if inference == "analytic":
                 sampled = analytical_classification_chunk(params, betas, ses)
+                e_beta_gls, e_se_gls = gls_endophenotype_stats_chunk(params, betas, ses)
             elif inference == "variational":
                 sampled = outliers_variational_classification_chunk(params, betas, ses)
+                e_beta_gls, e_se_gls = outliers_variational_gls_chunk(params, betas, ses)
             else:
                 sampled = outliers_analytic_classification_chunk(params, betas, ses)
+                e_beta_gls, e_se_gls = outliers_analytic_gls_chunk(params, betas, ses)
             if inference == "analytic":
                 mu_calc = calculate_mu_chunk(params, betas, ses)
             else:
@@ -203,6 +235,8 @@ def classify_vectorized(
                         t_means=sampled.t_means[i],
                     ),
                     mu_calc[i],
+                    e_beta_gls[i],
+                    e_se_gls[i],
                 )
                 handle.write(format_entry(var_id, classification))
 
@@ -217,9 +251,13 @@ def write_out_file(file: str, meta: Meta, classifications: list[Classification])
 def format_header(meta: Meta) -> str:
     parts = ["id"]
     for endo in meta.endo_names:
-        parts.append(f"{endo}_mean_samp")
-        parts.append(f"{endo}_std_samp")
+        parts.append(f"{endo}_mean_post")
+        parts.append(f"{endo}_std_post")
         parts.append(f"{endo}_mean_calc")
+        parts.append(f"{endo}_beta_gls")
+        parts.append(f"{endo}_se_gls")
+        parts.append(f"{endo}_z_gls")
+        parts.append(f"{endo}_p_gls")
     parts.extend(meta.trait_names)
     return "\t".join(parts) + "\n"
 
@@ -233,11 +271,29 @@ def format_entry(var_id: str, classification: Classification) -> str:
     if e_std.ndim == 2:
         e_std = e_std[0]
     e_calc = np.asarray(classification.e_mean_calculated, dtype=float)
+    e_beta_gls = np.asarray(classification.e_beta_gls, dtype=float)
+    e_se_gls = np.asarray(classification.e_se_gls, dtype=float)
+    if e_beta_gls.ndim == 2:
+        e_beta_gls = e_beta_gls[0]
+    if e_se_gls.ndim == 2:
+        e_se_gls = e_se_gls[0]
     parts = [var_id]
     for idx in range(len(e_mean)):
         parts.append(str(float(e_mean[idx])))
         parts.append(str(float(e_std[idx])))
         parts.append(str(float(e_calc[idx])))
+        beta = float(e_beta_gls[idx]) if idx < len(e_beta_gls) else float("nan")
+        se = float(e_se_gls[idx]) if idx < len(e_se_gls) else float("nan")
+        if se <= 0.0 or not math.isfinite(beta) or not math.isfinite(se):
+            z = float("nan")
+            p = float("nan")
+        else:
+            z = beta / se
+            p = math.erfc(abs(z) / math.sqrt(2.0))
+        parts.append(str(beta))
+        parts.append(str(se))
+        parts.append(str(float(z)))
+        parts.append(str(float(p)))
     t_means = np.asarray(sampled.t_means, dtype=float)
     if t_means.ndim == 2:
         t_means = t_means[0]
