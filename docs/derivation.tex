@@ -1158,6 +1158,218 @@ grid points whose mean cross-validation score is within one estimated standard e
 mean score, select the point with the smallest $\lambda_{\mathrm{out}}$ (fewest expected outlier traits)
 and, if tied, the smallest $\kappa$ (least aggressive variance inflation).
 
+\section{GWAS-style summary statistics for endophenotype effects}
+
+Many downstream post-GWAS methods require variant-level summary
+statistics in the form of an estimated effect size, standard error, and
+p-value. In our Bayesian model the primary quantity of interest is the
+latent endophenotype effect vector $\mathbf{E}^j$ for variant $j$,
+whose posterior distribution $\mathbf{E}^j \mid \mathbf{o}^j$ is
+multivariate normal under the baseline linear-Gaussian model. While the
+posterior mean and posterior standard deviation are natural Bayesian
+summaries, they incorporate the prior on $\mathbf{E}$ and therefore do
+not correspond directly to likelihood-based association statistics. In
+this section we define GWAS-style summary statistics for each
+endophenotype effect by treating $\mathbf{E}^j$ as an unknown
+(per-variant) parameter in the collapsed likelihood
+$\Pr(\mathbf{O}^j=\mathbf{o}^j \mid \mathbf{E}^j)$ and deriving a
+generalized least squares (GLS) estimate and standard error.
+
+\subsection*{Collapsed likelihood (baseline model)}
+
+After collapsing over the latent true trait effects $\mathbf{T}^j$, the
+baseline model implies
+\[
+\mathbf{O}^j \mid \mathbf{E}^j \sim {\mathcal N}\left(\mathbf{M}\mathbf{E}^j,\ \mathbf{V}^j\right),
+\]
+where $\mathbf{E}^j \in \mathbf{R}^K$, $\mathbf{M}$ is a $q\times K$
+matrix mapping endophenotypes to traits, and $\mathbf{V}^j$ is the
+covariance of $\mathbf{O}^j$ given $\mathbf{E}^j$. In the simplest case
+without edges between traits, $\mathbf{M}=\mathbf{B}$ and
+$\mathbf{V}^j$ is diagonal with entries $\sigma_i^2+(s_i^j)^2$. With
+trait edges, $\mathbf{M}=\mathbf{L}^{-1}\mathbf{B}$ and
+$\mathbf{V}^j=\mathbf{\Sigma}_T+\mathbf{S}^j$ as defined previously.
+
+The log-likelihood for $\mathbf{E}^j$ is
+\[
+\ell(\mathbf{E}^j)
+=
+-\frac{1}{2}\left(\mathbf{o}^j-\mathbf{M}\mathbf{E}^j\right)^T
+\left(\mathbf{V}^j\right)^{-1}
+\left(\mathbf{o}^j-\mathbf{M}\mathbf{E}^j\right) + C,
+\]
+where $C$ does not depend on $\mathbf{E}^j$.
+
+\subsection*{GLS/MLE estimate and standard errors (baseline model)}
+
+Differentiating $\ell(\mathbf{E}^j)$ and setting the gradient to zero
+yields the normal equations
+\[
+\mathbf{I}^j\, \hat{\mathbf{E}}^j = \mathbf{b}^j,
+\qquad
+\mathbf{I}^j = \mathbf{M}^T\left(\mathbf{V}^j\right)^{-1}\mathbf{M},
+\qquad
+\mathbf{b}^j = \mathbf{M}^T\left(\mathbf{V}^j\right)^{-1}\mathbf{o}^j.
+\]
+Assuming $\mathbf{I}^j$ is invertible, the GLS (equivalently MLE)
+estimate is
+\[
+\hat{\mathbf{E}}^j = \left(\mathbf{I}^j\right)^{-1}\mathbf{b}^j.
+\]
+Under the Gaussian model, $\mathbf{I}^j$ is also the Fisher information
+matrix for $\mathbf{E}^j$, and therefore
+\[
+\mathrm{Cov}\left(\hat{\mathbf{E}}^j\right)=\left(\mathbf{I}^j\right)^{-1}.
+\]
+For endophenotype $k$, we define GWAS-style summary statistics
+\[
+\hat{\beta}_{E_k}^j = \left(\hat{\mathbf{E}}^j\right)_k,\qquad
+\mathrm{se}\left(\hat{\beta}_{E_k}^j\right)
+=
+\sqrt{\left(\mathrm{Cov}\left(\hat{\mathbf{E}}^j\right)\right)_{kk}},
+\]
+and
+\[
+z_{E_k}^j = \frac{\hat{\beta}_{E_k}^j}{\mathrm{se}\left(\hat{\beta}_{E_k}^j\right)},
+\qquad
+p_{E_k}^j = 2\Phi\left(-\left|z_{E_k}^j\right|\right),
+\]
+where $\Phi$ is the standard normal CDF. Under the null
+$\mathbf{E}^j=\mathbf{0}$, each $z_{E_k}^j$ is marginally standard
+normal.
+
+\subsection*{Extension: outlier-control indicators $Z$}
+
+With outlier control enabled, each trait $i$ and variant $j$ has an
+indicator $Z_i^j\in\{0,1\}$ such that the trait-layer residual variance
+is inflated by a factor $\kappa^2$ when $Z_i^j=1$. Conditional on
+$\mathbf{Z}^j=(Z_1^j,\ldots,Z_q^j)$, the collapsed likelihood remains
+Gaussian:
+\[
+\mathbf{O}^j \mid \mathbf{E}^j,\mathbf{Z}^j \sim
+{\mathcal N}\left(\mathbf{M}\mathbf{E}^j,\ \mathbf{V}^j(\mathbf{Z}^j)\right),
+\]
+with $\mathbf{V}^j(\mathbf{Z}^j)$ defined in the outlier-control
+section. Thus, conditional on $\mathbf{Z}^j$, the GLS estimate and its
+covariance are
+\[
+\hat{\mathbf{E}}^j(\mathbf{Z}^j)
+=
+\left(\mathbf{I}^j(\mathbf{Z}^j)\right)^{-1}\mathbf{b}^j(\mathbf{Z}^j),
+\qquad
+\mathrm{Cov}\left(\hat{\mathbf{E}}^j(\mathbf{Z}^j)\right)
+=
+\left(\mathbf{I}^j(\mathbf{Z}^j)\right)^{-1},
+\]
+where
+\[
+\mathbf{I}^j(\mathbf{Z}^j)=\mathbf{M}^T\left(\mathbf{V}^j(\mathbf{Z}^j)\right)^{-1}\mathbf{M},
+\qquad
+\mathbf{b}^j(\mathbf{Z}^j)=\mathbf{M}^T\left(\mathbf{V}^j(\mathbf{Z}^j)\right)^{-1}\mathbf{o}^j.
+\]
+However, marginalizing over $\mathbf{Z}^j$ yields a mixture of Gaussians
+and the exact MLE under the mixture does not admit a simple closed form.
+We therefore define a robust GWAS-style estimate of $\mathbf{E}^j$ by
+combining the conditional GLS quantities using one of three procedures,
+depending on how inference over $\mathbf{Z}^j$ is performed.
+
+\subsubsection*{(1) Analytic enumeration of $\mathbf{Z}^j$ (exact for small $q$)}
+
+When $q$ is small, we can enumerate all $\mathbf{z}\in\{0,1\}^q$ and
+compute posterior weights
+\[
+\gamma^j(\mathbf{z}) \equiv \Pr(\mathbf{Z}^j=\mathbf{z}\mid \mathbf{o}^j),
+\qquad
+\sum_{\mathbf{z}}\gamma^j(\mathbf{z})=1.
+\]
+We then define posterior-weighted information and score vectors
+\[
+\overline{\mathbf{I}}^j = \sum_{\mathbf{z}}\gamma^j(\mathbf{z})\,\mathbf{I}^j(\mathbf{z}),
+\qquad
+\overline{\mathbf{b}}^j = \sum_{\mathbf{z}}\gamma^j(\mathbf{z})\,\mathbf{b}^j(\mathbf{z}),
+\]
+and a robust GLS estimate
+\[
+\hat{\mathbf{E}}_{\mathrm{rob}}^j = \left(\overline{\mathbf{I}}^j\right)^{-1}\overline{\mathbf{b}}^j,
+\qquad
+\mathrm{Cov}\left(\hat{\mathbf{E}}_{\mathrm{rob}}^j\right) \approx \left(\overline{\mathbf{I}}^j\right)^{-1}.
+\]
+The corresponding $(\hat{\beta},\mathrm{se},z,p)$ values are computed as
+in the baseline model using $\hat{\mathbf{E}}_{\mathrm{rob}}^j$ and
+$\mathrm{Cov}(\hat{\mathbf{E}}_{\mathrm{rob}}^j)$.
+
+\subsubsection*{(2) Variational approximation (scalable)}
+
+Under the mean-field variational approximation used for the outlier
+model, inference produces per-trait outlier responsibilities
+$\phi_i^j \equiv q(Z_i^j=1)$. Define
+\[
+\alpha_i^j \equiv \mathrm{E}_q\left[\frac{1}{c(Z_i^j)}\right]
+=
+(1-\phi_i^j) + \frac{\phi_i^j}{\kappa^2}.
+\]
+As in the variational derivation, we obtain an effective trait-layer
+residual covariance
+\[
+\widetilde{\mathbf{D}}^j = \mathrm{diag}\left(\frac{\sigma_1^2}{\alpha_1^j},\ldots,\frac{\sigma_q^2}{\alpha_q^j}\right),
+\]
+and therefore an effective covariance for the collapsed likelihood
+\[
+\widetilde{\mathbf{V}}^j
+=
+\widetilde{\mathbf{\Sigma}}_T^j + \mathbf{S}^j,
+\qquad
+\widetilde{\mathbf{\Sigma}}_T^j = \mathbf{L}^{-1}\widetilde{\mathbf{D}}^j\left(\mathbf{L}^{-1}\right)^T.
+\]
+We then define the robust GWAS-style estimate as the GLS/MLE under the
+effective Gaussian likelihood:
+\[
+\hat{\mathbf{E}}_{\mathrm{rob}}^j
+=
+\left(\mathbf{M}^T\left(\widetilde{\mathbf{V}}^j\right)^{-1}\mathbf{M}\right)^{-1}
+\mathbf{M}^T\left(\widetilde{\mathbf{V}}^j\right)^{-1}\mathbf{o}^j,
+\qquad
+\mathrm{Cov}\left(\hat{\mathbf{E}}_{\mathrm{rob}}^j\right)
+=
+\left(\mathbf{M}^T\left(\widetilde{\mathbf{V}}^j\right)^{-1}\mathbf{M}\right)^{-1}.
+\]
+
+\subsubsection*{(3) Gibbs sampling (Monte Carlo averaging)}
+
+When inference is performed by Gibbs sampling, we obtain samples
+$\mathbf{Z}^{j,(1)},\ldots,\mathbf{Z}^{j,(S)}$ from the posterior
+distribution of $\mathbf{Z}^j$ (after burn-in). We define Monte
+Carlo estimates
+\[
+\overline{\mathbf{I}}^j \approx \frac{1}{S}\sum_{s=1}^S \mathbf{I}^j\left(\mathbf{Z}^{j,(s)}\right),
+\qquad
+\overline{\mathbf{b}}^j \approx \frac{1}{S}\sum_{s=1}^S \mathbf{b}^j\left(\mathbf{Z}^{j,(s)}\right),
+\]
+and then
+\[
+\hat{\mathbf{E}}_{\mathrm{rob}}^j = \left(\overline{\mathbf{I}}^j\right)^{-1}\overline{\mathbf{b}}^j,
+\qquad
+\mathrm{Cov}\left(\hat{\mathbf{E}}_{\mathrm{rob}}^j\right) \approx \left(\overline{\mathbf{I}}^j\right)^{-1}.
+\]
+This approach is asymptotically exact as $S\rightarrow \infty$ and
+provides a consistent way to export GWAS-style summary statistics when
+sampling is used for inference.
+
+\subsection*{Relation to Bayesian posterior summaries}
+
+For comparison, under a Gaussian prior
+$\mathbf{E}^j \sim {\mathcal N}(\mathbf{\mu},\mathbf{\Sigma}_E)$ and the
+baseline Gaussian likelihood, the posterior has the form
+\[
+\mathbf{E}^j \mid \mathbf{o}^j \sim
+{\mathcal N}\left(\mathbf{m}_E^j,\ \mathbf{V}_E^j\right),
+\qquad
+\mathbf{V}_E^j = \left(\mathbf{\Sigma}_E^{-1} + \mathbf{I}^j\right)^{-1}.
+\]
+Thus the posterior mean is a shrinkage version of the likelihood-based
+estimate $\hat{\mathbf{E}}^j$. For compatibility with downstream tools,
+we recommend exporting the GWAS-style quantities defined above in
+addition to posterior means and standard deviations.
 
 \end{document}
 
