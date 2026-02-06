@@ -188,6 +188,13 @@ might override them.
 - `n_steps_burn_in` (default: `1000`) Gibbs burn-in steps; only used for Gibbs.
 - `n_samples` (default: `1000`) Gibbs samples for classification.
 - `out_file` (default: `classify_out.tsv`) output scores path.
+- `write_full` (default: `true`) writes the full ORIOLE classify TSV. Set to
+  `false` if you only want the GWAS-SSF output.
+- `gwas_ssf_out_file` (default: none) optional GWAS-SSF output path. When set,
+  ORIOLE writes GWAS-SSF formatted results from the GLS estimates.
+- `gwas_ssf_guess_fields` (default: `true`) guesses chromosome/position/alleles
+  from `VAR_ID` and auto-detects common metadata column names. Set to `false`
+  to only use explicitly configured columns.
 - `trace_ids` (default: `[]`) variant IDs to trace during classification.
 - `t_pinned` (default: none) optionally pins trait residual variance.
 
@@ -317,6 +324,38 @@ python run_oriole.py classify -f config.toml --gibbs
 
 ---
 
+## Classification Output Columns
+
+Each classify output TSV includes one row per variant and the following fields:
+
+`id`
+- Variant identifier.
+
+Per endophenotype `{endo}` (in this order):
+- `{endo}_mean_post`: posterior mean of E.  
+  In analytic/variational modes this is the closed‑form posterior mean.  
+  In Gibbs mode this is the Monte Carlo posterior mean.
+- `{endo}_std_post`: posterior standard deviation of E.  
+  In analytic/variational modes this is the closed‑form posterior std.  
+  In Gibbs mode this is the Monte Carlo posterior std.
+- `{endo}_mean_calc`: analytically computed posterior mean of E.  
+  In analytic/variational modes this matches `{endo}_mean_post` (up to numeric noise).  
+  In Gibbs mode this stays analytic and is provided as a deterministic reference.
+- `{endo}_beta_gls`: GLS estimate of E from the collapsed likelihood `p(O|E)` (no prior).
+- `{endo}_se_gls`: GLS standard error.
+- `{endo}_z_gls`: `{endo}_beta_gls / {endo}_se_gls`.
+- `{endo}_p_gls`: two‑sided normal p‑value from `{endo}_z_gls`.
+
+Trait means:
+- one column per trait, containing the posterior mean of the latent trait value `T_i` for that variant.
+
+Guidance:
+- Use `{endo}_mean_post` / `{endo}_std_post` when you want full Bayesian posterior summaries (these depend on `mu/tau`).
+- Use `{endo}_beta_gls` / `{endo}_z_gls` / `{endo}_p_gls` for GWAS‑style, prior‑free summaries.
+- In Gibbs runs, compare `{endo}_mean_post` vs `{endo}_mean_calc` to assess sampling noise.
+
+---
+
 ## Configuration File
 
 ORIOLE uses TOML. A minimal template:
@@ -333,6 +372,13 @@ file = "path/to/trait1.tsv"
 id = "VAR_ID"
 effect = "BETA"
 se = "SE"
+# Optional GWAS-SSF metadata mappings:
+# chrom = "CHR"
+# pos = "BP"
+# effect_allele = "A1"
+# other_allele = "A2"
+# eaf = "EAF"
+# rsid = "RSID"
 
 # repeat [[gwas]] blocks for each trait
 
@@ -413,6 +459,21 @@ Example header:
 VAR_ID;BETA;SE
 ```
 
+Optional metadata columns (used for GWAS-SSF output if present, or mapped via
+`[gwas.cols]`):
+
+- `CHR`: chromosome
+- `BP`: base pair location
+- `A1`: effect allele
+- `A2`: other allele
+- `EAF`: effect allele frequency
+- `RSID`: rsID
+
+If `gwas_ssf_guess_fields = true`, ORIOLE will also auto-detect common header
+names and attempt to parse missing fields from `VAR_ID` formats like
+`chr:pos:A1:A2`. If guessing is disabled, missing fields are omitted from the
+GWAS-SSF output.
+
 ### Variant ID list
 
 The `train.ids_file` is a two-column file:
@@ -466,6 +527,9 @@ The repo includes small test data under `tests/data/`:
 - `multi_e_params.json`
 - `multi_e_config_train.toml`
 - `multi_e_config_classify.toml`
+- `ssf_trait1.tsv`
+- `ssf_params.json`
+- `ssf_config_classify.toml`
 - `trait_edges_trait1.tsv`, `trait_edges_trait2.tsv`, `trait_edges_trait3.tsv`
 - `trait_edges_ids.txt`
 - `trait_edges_params.json`
@@ -590,6 +654,23 @@ Outlier handling:
 - `variational` uses an effective covariance with `E[1/c(Z)]` to compute GLS.
 - `gibbs` uses the mean sampled `Z` (per trait) to build an effective covariance;
   this is a Monte Carlo approximation consistent with the sampling run.
+
+### GWAS-SSF output (streamlined)
+
+If you set `classify.gwas_ssf_out_file`, ORIOLE writes an additional GWAS-SSF
+file derived from the GLS outputs. This file is useful for downstream tools
+that expect standard GWAS summary statistics.
+
+Columns included (when available):
+
+- `variant_id` (always)
+- `chromosome`, `base_pair_location`, `effect_allele`, `other_allele`, `rsid`
+- `effect_allele_frequency` (averaged across traits when multiple values exist)
+- `beta`, `standard_error`, `p_value` (from GLS)
+
+If multiple endophenotypes are defined, ORIOLE writes one GWAS-SSF file per
+endophenotype by appending `_{endo}` to the output filename (preserving `.gz`).
+Set `classify.write_full = false` if you only want the GWAS-SSF output.
 
 ### Early stopping for training
 

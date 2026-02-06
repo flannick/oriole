@@ -8,6 +8,7 @@ import io
 
 import numpy as np
 import re
+import math
 
 from ..error import new_error, for_context, for_file
 from ..math_utils.matrix import matrix_fill
@@ -95,6 +96,7 @@ class Weights:
 class LoadedData:
     gwas_data: GwasData
     weights: Weights
+    variant_meta: dict[str, "VariantMeta"] | None = None
 
 
 @dataclass
@@ -109,8 +111,80 @@ class IdData:
     weight: float
 
 
+@dataclass
+class VariantMeta:
+    chrom: str | None
+    pos: int | None
+    effect_allele: str | None
+    other_allele: str | None
+    rsid: str | None
+    eaf: float | None
+
+
+@dataclass
+class VariantMetaAccumulator:
+    chrom: str | None = None
+    pos: int | None = None
+    effect_allele: str | None = None
+    other_allele: str | None = None
+    rsid: str | None = None
+    eaf_sum: float = 0.0
+    eaf_count: int = 0
+
+    def add_record(self, record: GwasRecord, trait_name: str, var_id: str) -> None:
+        self._merge_field("chrom", record.chrom, trait_name, var_id)
+        self._merge_field("pos", record.pos, trait_name, var_id)
+        self._merge_field("effect_allele", record.effect_allele, trait_name, var_id)
+        self._merge_field("other_allele", record.other_allele, trait_name, var_id)
+        self._merge_field("rsid", record.rsid, trait_name, var_id)
+        if record.eaf is not None and math.isfinite(record.eaf):
+            self.eaf_sum += record.eaf
+            self.eaf_count += 1
+
+    def _merge_field(
+        self,
+        field: str,
+        value: str | int | None,
+        trait_name: str,
+        var_id: str,
+    ) -> None:
+        if value is None or value == "":
+            return
+        existing = getattr(self, field)
+        if existing is None:
+            setattr(self, field, value)
+            return
+        if existing != value:
+            raise new_error(
+                "Conflicting {} for variant {} across traits (existing={}, new={}, trait={}).".format(
+                    field, var_id, existing, value, trait_name
+                )
+            )
+
+    def finalize(self) -> VariantMeta:
+        eaf = None
+        if self.eaf_count > 0:
+            eaf = self.eaf_sum / self.eaf_count
+        return VariantMeta(
+            chrom=self.chrom,
+            pos=self.pos,
+            effect_allele=self.effect_allele,
+            other_allele=self.other_allele,
+            rsid=self.rsid,
+            eaf=eaf,
+        )
+
+
 def load_data(config: Config, action: Action) -> LoadedData:
     n_traits = len(config.gwas)
+    need_meta = (
+        action == Action.CLASSIFY
+        and config.classify.gwas_ssf_out_file is not None
+    )
+    allow_meta_guess = bool(config.classify.gwas_ssf_guess_fields) if need_meta else False
+    meta_by_id: dict[str, VariantMetaAccumulator] | None = (
+        {} if need_meta else None
+    )
     if action == Action.TRAIN:
         print(f"Loading training IDs from {config.train.ids_file}")
         ids_start = time.perf_counter()
@@ -128,7 +202,15 @@ def load_data(config: Config, action: Action) -> LoadedData:
     for i_trait, gwas in enumerate(config.gwas):
         trait_names.append(gwas.name)
         trait_start = time.perf_counter()
-        load_gwas(beta_se_by_id, gwas, n_traits, i_trait, action)
+        load_gwas(
+            beta_se_by_id,
+            gwas,
+            n_traits,
+            i_trait,
+            action,
+            meta_by_id=meta_by_id,
+            auto_meta=allow_meta_guess,
+        )
         print(
             f"Loaded GWAS {gwas.name} from {gwas.file} in "
             f"{time.perf_counter() - trait_start:.2f}s"
@@ -176,7 +258,10 @@ def load_data(config: Config, action: Action) -> LoadedData:
     endo_names = [item.name for item in config.endophenotypes]
     meta = Meta(trait_names=trait_names, var_ids=var_ids, endo_names=endo_names)
     gwas_data = GwasData(meta=meta, betas=betas, ses=ses)
-    return LoadedData(gwas_data=gwas_data, weights=weights)
+    variant_meta = None
+    if need_meta and meta_by_id is not None:
+        variant_meta = finalize_variant_meta(meta_by_id, var_ids, allow_meta_guess)
+    return LoadedData(gwas_data=gwas_data, weights=weights, variant_meta=variant_meta)
 
 
 def load_ids(ids_file: str, n_traits: int) -> Dict[str, IdData]:
@@ -225,6 +310,8 @@ def load_gwas(
     n_traits: int,
     i_trait: int,
     action: Action,
+    meta_by_id: dict[str, VariantMetaAccumulator] | None = None,
+    auto_meta: bool = False,
 ) -> None:
     file = gwas_config.file
     cols = gwas_config.cols or GwasCols(
@@ -232,7 +319,7 @@ def load_gwas(
     )
     try:
         with _open_text(file) as handle:
-            reader = GwasReader(handle, cols)
+            reader = GwasReader(handle, cols, auto_meta=auto_meta)
             for record in reader:
                 var_id = record.var_id
                 beta = record.beta
@@ -243,6 +330,12 @@ def load_gwas(
                     beta_se_list = new_beta_se_list(n_traits)
                     beta_se_list[i_trait] = BetaSe(beta=beta, se=se)
                     beta_se_by_id[var_id] = IdData(beta_se_list, 1.0)
+                if meta_by_id is not None:
+                    accumulator = meta_by_id.get(var_id)
+                    if accumulator is None:
+                        accumulator = VariantMetaAccumulator()
+                        meta_by_id[var_id] = accumulator
+                    accumulator.add_record(record, gwas_config.name, var_id)
     except Exception as exc:
         raise for_context(file, exc) from exc
 
@@ -258,6 +351,60 @@ def _open_text(path: str) -> io.TextIOBase:
     if magic == b"\x1f\x8b":
         return gzip.open(raw, "rt", encoding="utf-8")
     return io.TextIOWrapper(raw, encoding="utf-8")
+
+
+_VAR_ID_GUESS = re.compile(
+    r"^(?:chr)?(?P<chrom>[^:._-]+)[:_\\-](?P<pos>\\d+)[:_\\-](?P<a1>[A-Za-z]+)[:_\\-](?P<a2>[A-Za-z]+)$",
+    re.IGNORECASE,
+)
+
+
+def finalize_variant_meta(
+    meta_by_id: dict[str, VariantMetaAccumulator],
+    var_ids: list[str],
+    allow_guess: bool,
+) -> dict[str, VariantMeta]:
+    out: dict[str, VariantMeta] = {}
+    n_guessed = 0
+    for var_id in var_ids:
+        accumulator = meta_by_id.get(var_id) or VariantMetaAccumulator()
+        if allow_guess:
+            guessed = _guess_variant_meta(var_id)
+            if guessed is not None:
+                n_guessed += 1
+                if accumulator.chrom is None:
+                    accumulator.chrom = guessed.chrom
+                if accumulator.pos is None:
+                    accumulator.pos = guessed.pos
+                if accumulator.effect_allele is None:
+                    accumulator.effect_allele = guessed.effect_allele
+                if accumulator.other_allele is None:
+                    accumulator.other_allele = guessed.other_allele
+        out[var_id] = accumulator.finalize()
+    if allow_guess and n_guessed > 0:
+        print(
+            "Warning: GWAS-SSF fields guessed from variant IDs for "
+            f"{n_guessed} variants. Set classify.gwas_ssf_guess_fields=false to disable."
+        )
+    return out
+
+
+def _guess_variant_meta(var_id: str) -> VariantMeta | None:
+    match = _VAR_ID_GUESS.match(var_id)
+    if not match:
+        return None
+    chrom = match.group("chrom")
+    pos = int(match.group("pos"))
+    a1 = match.group("a1")
+    a2 = match.group("a2")
+    return VariantMeta(
+        chrom=chrom,
+        pos=pos,
+        effect_allele=a1,
+        other_allele=a2,
+        rsid=None,
+        eaf=None,
+    )
 
 
 def load_data_for_ids(config: "Config", ids: list[str]) -> GwasData:

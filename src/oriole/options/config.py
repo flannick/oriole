@@ -60,6 +60,9 @@ class ClassifyConfig:
     out_file: str
     trace_ids: Optional[list[str]] = None
     t_pinned: Optional[bool] = None
+    write_full: bool = True
+    gwas_ssf_out_file: Optional[str] = None
+    gwas_ssf_guess_fields: bool = True
     mu_specified: bool = False
     tau_specified: bool = False
     mu: float = 0.0
@@ -132,7 +135,17 @@ class Config:
 def _gwas_cols_from_dict(value: dict | None) -> Optional[GwasCols]:
     if value is None:
         return None
-    return GwasCols(id=value["id"], effect=value["effect"], se=value["se"])
+    return GwasCols(
+        id=value["id"],
+        effect=value["effect"],
+        se=value["se"],
+        chrom=value.get("chrom"),
+        pos=value.get("pos"),
+        effect_allele=value.get("effect_allele"),
+        other_allele=value.get("other_allele"),
+        eaf=value.get("eaf"),
+        rsid=value.get("rsid"),
+    )
 
 
 def _params_override_from_dict(value: dict | None) -> Optional[ParamsOverride]:
@@ -318,6 +331,9 @@ def load_config(path: str) -> Config:
     classify_data.setdefault("n_steps_burn_in", 1000)
     classify_data.setdefault("n_samples", 1000)
     classify_data.setdefault("out_file", "classify_out.tsv")
+    classify_data.setdefault("write_full", True)
+    classify_data.setdefault("gwas_ssf_out_file", None)
+    classify_data.setdefault("gwas_ssf_guess_fields", True)
     classify_data.setdefault("trace_ids", [])
     classify_data.setdefault("t_pinned", None)
     classify_data.setdefault("mu_specified", classify_mu_specified)
@@ -341,7 +357,17 @@ def dump_config(config: Config) -> str:
     def gwas_to_dict(item: GwasConfig) -> dict:
         cols = None
         if item.cols is not None:
-            cols = {"id": item.cols.id, "effect": item.cols.effect, "se": item.cols.se}
+            cols = {
+                "id": item.cols.id,
+                "effect": item.cols.effect,
+                "se": item.cols.se,
+                "chrom": item.cols.chrom,
+                "pos": item.cols.pos,
+                "effect_allele": item.cols.effect_allele,
+                "other_allele": item.cols.other_allele,
+                "eaf": item.cols.eaf,
+                "rsid": item.cols.rsid,
+            }
         return {"name": item.name, "file": item.file, "cols": cols}
 
     def classify_to_dict(item: ClassifyConfig) -> dict:
@@ -350,6 +376,9 @@ def dump_config(config: Config) -> str:
             "n_steps_burn_in": item.n_steps_burn_in,
             "n_samples": item.n_samples,
             "out_file": item.out_file,
+            "write_full": item.write_full,
+            "gwas_ssf_out_file": item.gwas_ssf_out_file,
+            "gwas_ssf_guess_fields": item.gwas_ssf_guess_fields,
             "trace_ids": item.trace_ids,
             "t_pinned": item.t_pinned,
             "mu": item.mu,

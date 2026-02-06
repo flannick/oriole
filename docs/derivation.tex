@@ -277,6 +277,16 @@ we therefore fix $\mu=0$ and use a weak (approximately flat) prior by taking $\t
 (e.g., $\tau\approx 10^6$ in the units of $E$), and we rely on likelihood-based GLS summary
 statistics for $E$ for downstream post-GWAS workflows.
 
+By contrast, during EM
+training we typically fix $\tau$ to a modest finite value (e.g., $\tau=1$) to anchor the scale of the
+latent endophenotype. Without a scale constraint, the likelihood is (approximately) invariant to
+rescaling $E$ and the loadings $\beta$ (e.g., $E^j \leftarrow cE^j$ and $\beta_i \leftarrow \beta_i/c$ leaves
+the mean $\beta_iE^j$ unchanged), which leads to non-identifiability and can make EM updates
+numerically unstable. A finite $\tau$ therefore acts as a regularizer that discourages extreme $E$
+values and fixes the unit in which $E$ is measured. Equivalent alternatives are to impose an
+explicit normalization constraint on the $\beta$ parameters (e.g., fixing one loading or constraining
+a norm), but fixing $\tau$ is a simple and effective default during training.
+
 \section{Analytic derivation of needed expectations}
 
 In the EM algorithm, the M-step updates require the sufficient
