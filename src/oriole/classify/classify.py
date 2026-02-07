@@ -154,7 +154,10 @@ def classify(
         )
     if chunk_size is None or chunk_size <= 0:
         chunk_size = _default_chunk_size(data.meta.n_traits(), data.meta.n_data_points())
-    use_vectorized = chunk_size > 1 and inference == "analytic" and not config.outliers.enabled
+    use_vectorized = chunk_size > 1 and (
+        (inference == "analytic" and not config.outliers.enabled)
+        or (inference == "variational" and config.outliers.enabled)
+    )
     if use_vectorized:
         classify_vectorized(
             data,
@@ -199,8 +202,10 @@ def classify_vectorized(
     chunk_size: int,
     variant_meta: dict[str, VariantMeta] | None = None,
 ) -> None:
-    if inference != "analytic":
-        raise new_error("Vectorized classification is only supported for analytic inference.")
+    if inference not in {"analytic", "variational"}:
+        raise new_error(
+            "Vectorized classification is only supported for analytic or variational inference."
+        )
     meta = data.meta
     n = meta.n_data_points()
     ssf_handles, ssf_header, ssf_include = _maybe_open_ssf_outputs(
