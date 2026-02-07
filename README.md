@@ -195,6 +195,9 @@ might override them.
 - `gwas_ssf_guess_fields` (default: `true`) guesses chromosome/position/alleles
   from `VAR_ID` and auto-detects common metadata column names. Set to `false`
   to only use explicitly configured columns.
+- `gwas_ssf_variant_id_order` (default: `effect_other`) controls how ORIOLE
+  interprets `VAR_ID` formats like `1_752566_A_G`. Use `other_effect` if your
+  IDs are encoded as `chrom_pos_other_effect`.
 - `trace_ids` (default: `[]`) variant IDs to trace during classification.
 - `t_pinned` (default: none) optionally pins trait residual variance.
 
@@ -471,8 +474,10 @@ Optional metadata columns (used for GWAS-SSF output if present, or mapped via
 
 If `gwas_ssf_guess_fields = true`, ORIOLE will also auto-detect common header
 names and attempt to parse missing fields from `VAR_ID` formats like
-`chr:pos:A1:A2`. If guessing is disabled, missing fields are omitted from the
-GWAS-SSF output.
+`chr:pos:A1:A2` or `1_752566_A_G` using any non-alphanumeric delimiter (e.g.
+`:`, `_`, `-`, `.`). Use `gwas_ssf_variant_id_order` to control whether the
+last two tokens are treated as effect/other or other/effect.
+If guessing is disabled, missing fields are omitted from the GWAS-SSF output.
 
 ### Variant ID list
 

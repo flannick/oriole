@@ -63,6 +63,7 @@ class ClassifyConfig:
     write_full: bool = True
     gwas_ssf_out_file: Optional[str] = None
     gwas_ssf_guess_fields: bool = True
+    gwas_ssf_variant_id_order: str = "effect_other"
     mu_specified: bool = False
     tau_specified: bool = False
     mu: float = 0.0
@@ -334,6 +335,7 @@ def load_config(path: str) -> Config:
     classify_data.setdefault("write_full", True)
     classify_data.setdefault("gwas_ssf_out_file", None)
     classify_data.setdefault("gwas_ssf_guess_fields", True)
+    classify_data.setdefault("gwas_ssf_variant_id_order", "effect_other")
     classify_data.setdefault("trace_ids", [])
     classify_data.setdefault("t_pinned", None)
     classify_data.setdefault("mu_specified", classify_mu_specified)
@@ -379,6 +381,7 @@ def dump_config(config: Config) -> str:
             "write_full": item.write_full,
             "gwas_ssf_out_file": item.gwas_ssf_out_file,
             "gwas_ssf_guess_fields": item.gwas_ssf_guess_fields,
+            "gwas_ssf_variant_id_order": item.gwas_ssf_variant_id_order,
             "trace_ids": item.trace_ids,
             "t_pinned": item.t_pinned,
             "mu": item.mu,

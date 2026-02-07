@@ -182,6 +182,9 @@ def load_data(config: Config, action: Action) -> LoadedData:
         and config.classify.gwas_ssf_out_file is not None
     )
     allow_meta_guess = bool(config.classify.gwas_ssf_guess_fields) if need_meta else False
+    guess_order = (
+        config.classify.gwas_ssf_variant_id_order if need_meta else "effect_other"
+    )
     meta_by_id: dict[str, VariantMetaAccumulator] | None = (
         {} if need_meta else None
     )
@@ -260,7 +263,9 @@ def load_data(config: Config, action: Action) -> LoadedData:
     gwas_data = GwasData(meta=meta, betas=betas, ses=ses)
     variant_meta = None
     if need_meta and meta_by_id is not None:
-        variant_meta = finalize_variant_meta(meta_by_id, var_ids, allow_meta_guess)
+        variant_meta = finalize_variant_meta(
+            meta_by_id, var_ids, allow_meta_guess, guess_order
+        )
     return LoadedData(gwas_data=gwas_data, weights=weights, variant_meta=variant_meta)
 
 
@@ -354,7 +359,7 @@ def _open_text(path: str) -> io.TextIOBase:
 
 
 _VAR_ID_GUESS = re.compile(
-    r"^(?:chr)?(?P<chrom>[^:._-]+)[:_\\-](?P<pos>\\d+)[:_\\-](?P<a1>[A-Za-z]+)[:_\\-](?P<a2>[A-Za-z]+)$",
+    r"^(?:chr)?(?P<chrom>[A-Za-z0-9]+)[^A-Za-z0-9]+(?P<pos>\\d+)[^A-Za-z0-9]+(?P<a1>[A-Za-z]+)[^A-Za-z0-9]+(?P<a2>[A-Za-z]+)$",
     re.IGNORECASE,
 )
 
@@ -363,13 +368,14 @@ def finalize_variant_meta(
     meta_by_id: dict[str, VariantMetaAccumulator],
     var_ids: list[str],
     allow_guess: bool,
+    guess_order: str,
 ) -> dict[str, VariantMeta]:
     out: dict[str, VariantMeta] = {}
     n_guessed = 0
     for var_id in var_ids:
         accumulator = meta_by_id.get(var_id) or VariantMetaAccumulator()
         if allow_guess:
-            guessed = _guess_variant_meta(var_id)
+            guessed = _guess_variant_meta(var_id, guess_order)
             if guessed is not None:
                 n_guessed += 1
                 if accumulator.chrom is None:
@@ -384,12 +390,13 @@ def finalize_variant_meta(
     if allow_guess and n_guessed > 0:
         print(
             "Warning: GWAS-SSF fields guessed from variant IDs for "
-            f"{n_guessed} variants. Set classify.gwas_ssf_guess_fields=false to disable."
+            f"{n_guessed} variants (order={guess_order}). "
+            "Set classify.gwas_ssf_guess_fields=false to disable."
         )
     return out
 
 
-def _guess_variant_meta(var_id: str) -> VariantMeta | None:
+def _guess_variant_meta(var_id: str, guess_order: str) -> VariantMeta | None:
     match = _VAR_ID_GUESS.match(var_id)
     if not match:
         return None
@@ -397,6 +404,12 @@ def _guess_variant_meta(var_id: str) -> VariantMeta | None:
     pos = int(match.group("pos"))
     a1 = match.group("a1")
     a2 = match.group("a2")
+    if guess_order not in {"effect_other", "other_effect"}:
+        raise new_error(
+            f"classify.gwas_ssf_variant_id_order must be 'effect_other' or 'other_effect', got '{guess_order}'."
+        )
+    if guess_order == "other_effect":
+        a1, a2 = a2, a1
     return VariantMeta(
         chrom=chrom,
         pos=pos,
