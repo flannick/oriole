@@ -191,6 +191,11 @@ def classify(
             classifications,
             variant_meta,
         )
+    if temp_out_file and os.path.exists(temp_out_file):
+        try:
+            os.remove(temp_out_file)
+        except OSError as exc:
+            print(f"Warning: could not remove temp file {temp_out_file}: {exc}")
     threads.close(MessageToWorker.shutdown())
 
 
