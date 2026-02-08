@@ -97,6 +97,11 @@ might override them.
 - `cols.se` (default: none) column name for standard error; set if not `SE`.
   Intuition: correct column mapping is essential for accurate likelihoods.
 
+`[data_access]`
+- `gwas_base_uri` (default: none) optional base URI for GWAS files. If set and
+  a `[[gwas]].file` entry is a relative path, ORIOLE will prefix it with this
+  base. Use this to point at the DIG Open Data registry or S3 buckets.
+
 `[endophenotypes]`
 - If omitted, a single endophenotype `E` connects to all traits (`"*"`).
 - `name` (required) names the endophenotype; useful when modeling multiple
@@ -461,6 +466,30 @@ Example header:
 ```
 VAR_ID;BETA;SE
 ```
+
+### Remote GWAS access (optional)
+
+You can read GWAS files from the DIG Open Data registry using `dig-open-data`.
+Set a base URI and keep `[[gwas]].file` as a relative path:
+
+```toml
+[data_access]
+gwas_base_uri = "registry://dig-open-bottom-line-analysis"
+
+[[gwas]]
+name = "bmi"
+file = "path/inside/bucket/aligned_bmi.tsv.gz"
+```
+
+You can also use direct S3 URIs:
+
+```toml
+[[gwas]]
+name = "bmi"
+file = "s3://dig-open-bottom-line-analysis/path/inside/bucket/aligned_bmi.tsv.gz"
+```
+
+Local files still work without any change.
 
 Optional metadata columns (used for GWAS-SSF output if present, or mapped via
 `[gwas.cols]`):

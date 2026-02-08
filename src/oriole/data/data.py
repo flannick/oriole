@@ -19,6 +19,11 @@ if TYPE_CHECKING:
     from ..options.config import Config, GwasConfig
 from .gwas import GwasReader, GwasRecord, GwasCols, default_cols
 
+try:
+    from dig_open_data import open_text as open_data_text
+except Exception:  # pragma: no cover - optional dependency
+    open_data_text = None
+
 DELIM_LIST = [";", "\t", ",", " "]
 
 
@@ -213,6 +218,7 @@ def load_data(config: Config, action: Action) -> LoadedData:
             action,
             meta_by_id=meta_by_id,
             auto_meta=allow_meta_guess,
+            base_uri=config.data_access.gwas_base_uri,
         )
         print(
             f"Loaded GWAS {gwas.name} from {gwas.file} in "
@@ -317,8 +323,9 @@ def load_gwas(
     action: Action,
     meta_by_id: dict[str, VariantMetaAccumulator] | None = None,
     auto_meta: bool = False,
+    base_uri: str | None = None,
 ) -> None:
-    file = gwas_config.file
+    file = _resolve_uri(gwas_config.file, base_uri)
     cols = gwas_config.cols or GwasCols(
         id=default_cols.VAR_ID, effect=default_cols.BETA, se=default_cols.SE
     )
@@ -350,12 +357,29 @@ def new_beta_se_list(n_traits: int) -> list[BetaSe]:
 
 
 def _open_text(path: str) -> io.TextIOBase:
+    if open_data_text is not None:
+        return open_data_text(path, encoding="utf-8")
+    if "://" in path:
+        raise new_error(
+            "Remote URI provided but dig-open-data is not installed. "
+            "Install it or use a local file path."
+        )
     raw = open(path, "rb")
     magic = raw.read(2)
     raw.seek(0)
     if magic == b"\x1f\x8b":
         return gzip.open(raw, "rt", encoding="utf-8")
     return io.TextIOWrapper(raw, encoding="utf-8")
+
+
+def _resolve_uri(path: str, base_uri: str | None) -> str:
+    if base_uri is None:
+        return path
+    if "://" in path:
+        return path
+    base = base_uri.rstrip("/")
+    rel = path.lstrip("/")
+    return f"{base}/{rel}"
 
 
 _VAR_ID_GUESS = re.compile(

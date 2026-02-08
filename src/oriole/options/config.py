@@ -29,6 +29,11 @@ class FilesConfig:
 
 
 @dataclass
+class DataAccessConfig:
+    gwas_base_uri: Optional[str] = None
+
+
+@dataclass
 class TrainConfig:
     ids_file: str
     n_steps_burn_in: int
@@ -124,6 +129,7 @@ class TraitEdgeConfig:
 @dataclass
 class Config:
     files: FilesConfig
+    data_access: DataAccessConfig
     gwas: list[GwasConfig]
     endophenotypes: list[EndophenotypeConfig]
     trait_edges: list[TraitEdgeConfig]
@@ -193,6 +199,10 @@ def load_config(path: str) -> Config:
     if not params_path:
         params_path = str((Path(path).parent / "params_out.json").as_posix())
     files = FilesConfig(trace=files_data.get("trace"), params=params_path)
+    data_access_data = data.get("data_access", {})
+    data_access = DataAccessConfig(
+        gwas_base_uri=data_access_data.get("gwas_base_uri")
+    )
     gwas = [
         GwasConfig(
             name=item["name"],
@@ -345,6 +355,7 @@ def load_config(path: str) -> Config:
     classify = ClassifyConfig(**classify_data)
     return Config(
         files=files,
+        data_access=data_access,
         gwas=gwas,
         endophenotypes=endophenotypes,
         trait_edges=trait_edges,
@@ -396,6 +407,7 @@ def dump_config(config: Config) -> str:
 
     data = {
         "files": {"trace": config.files.trace, "params": config.files.params},
+        "data_access": {"gwas_base_uri": config.data_access.gwas_base_uri},
         "gwas": [gwas_to_dict(item) for item in config.gwas],
         "endophenotypes": [
             {"name": item.name, "traits": item.traits} for item in config.endophenotypes
