@@ -14,8 +14,10 @@ dependencies = [
   "numpy>=1.23",
   "tomli>=2.0",
   "tomli-w>=1.0",
-  "dig-open-data>=0.1.0",
 ]
+
+[project.optional-dependencies]
+dig-open-data = ["dig-open-data>=0.1.0"]
 
 [project.scripts]
 oriole = "oriole.cli:main"

@@ -28,6 +28,12 @@ python -m pip install -e .
 
 Dependencies: `numpy`, `tomli`, `tomli-w`. Tests use `pytest`.
 
+If you plan to read GWAS files from DIG Open Data, install the optional extra:
+
+```bash
+python -m pip install -e ".[dig-open-data]"
+```
+
 Note: avoid naming a local package `math` (it shadows the Python stdlib). ORIOLE
 internal math helpers live under `oriole/math_utils/`.
 
@@ -489,6 +495,12 @@ For DIG Open Data, use the short URI form exposed by the `dig-open-data` package
 [[gwas]]
 name = "bmi"
 uri = "dig-open-data:EU:BMI"
+```
+
+Make sure the optional dependency is installed:
+
+```bash
+python -m pip install -e ".[dig-open-data]"
 ```
 
 You can mix local and remote entries in the same config. Local files still work

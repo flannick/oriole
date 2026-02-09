@@ -8,3 +8,4 @@ __pycache__/
 .envrc
 .DS_Store
 .pytest_cache/
+issues.md

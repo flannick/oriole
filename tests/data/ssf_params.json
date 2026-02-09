@@ -1,0 +1,7 @@
+{
+  "trait_names": ["trait1"],
+  "mu": 0.0,
+  "tau": 1.0,
+  "betas": [0.5],
+  "sigmas": [1.0]
+}

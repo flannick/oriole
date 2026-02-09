@@ -1,0 +1,16 @@
+[files]
+params = "ssf_params.json"
+
+[[gwas]]
+name = "trait1"
+file = "ssf_trait1.tsv"
+cols = { id = "VAR_ID", effect = "BETA", se = "SE", chrom = "CHR", pos = "BP", effect_allele = "A1", other_allele = "A2", eaf = "EAF", rsid = "RSID" }
+
+[train]
+ids_file = "sample_1000_ids.txt"
+
+[classify]
+out_file = "ssf_full.tsv"
+write_full = true
+gwas_ssf_out_file = "ssf_out.tsv"
+gwas_ssf_guess_fields = false
