@@ -91,16 +91,19 @@ might override them.
 
 `[[gwas]]`
 - `name` (required) names the trait; should match other sections and params.
-- `file` (required) is the GWAS TSV path.
+- `file` (optional) GWAS TSV path on disk.
+- `uri` (optional) GWAS source URI. Use `dig-open-data:<ancestry>:<trait>` for
+  DIG Open Data, or a fully qualified URI like `file://`, `s3://`, or
+  `registry://`. If both are set, `uri` takes precedence.
 - `cols.id` (default: none) column name for variant ID; set if not `VAR_ID`.
 - `cols.effect` (default: none) column name for effect size; set if not `BETA`.
 - `cols.se` (default: none) column name for standard error; set if not `SE`.
   Intuition: correct column mapping is essential for accurate likelihoods.
 
 `[data_access]`
-- `gwas_base_uri` (default: none) optional base URI for GWAS files. If set and
-  a `[[gwas]].file` entry is a relative path, ORIOLE will prefix it with this
-  base. Use this to point at the DIG Open Data registry or S3 buckets.
+- `retries` (default: `3`) retry count for remote streams.
+- `download` (default: `false`) download remote files to a temp path before
+  reading (useful for very large gz files or flaky streams).
 
 `[endophenotypes]`
 - If omitted, a single endophenotype `E` connects to all traits (`"*"`).
@@ -469,27 +472,30 @@ VAR_ID;BETA;SE
 
 ### Remote GWAS access (optional)
 
-You can read GWAS files from the DIG Open Data registry using `dig-open-data`.
-Set a base URI and keep `[[gwas]].file` as a relative path:
+GWAS inputs can be local or remote **per file**. Use `[[gwas]].uri` to point to a
+remote source and keep local files in `[[gwas]].file`.
+
+For DIG Open Data, use the short URI form exposed by the `dig-open-data` package:
+
+```toml
+[[gwas]]
+name = "bmi"
+uri = "dig-open-data:EU:BMI"
+```
+
+You can mix local and remote entries in the same config. Local files still work
+without any change.
+
+If you need a fully qualified URI, you can also use `file://`, `s3://`, or
+`registry://` in `[[gwas]].uri`.
+
+The optional `[data_access]` block controls download behavior:
 
 ```toml
 [data_access]
-gwas_base_uri = "registry://dig-open-bottom-line-analysis"
-
-[[gwas]]
-name = "bmi"
-file = "path/inside/bucket/aligned_bmi.tsv.gz"
+retries = 5
+download = true
 ```
-
-You can also use direct S3 URIs:
-
-```toml
-[[gwas]]
-name = "bmi"
-file = "s3://dig-open-bottom-line-analysis/path/inside/bucket/aligned_bmi.tsv.gz"
-```
-
-Local files still work without any change.
 
 Optional metadata columns (used for GWAS-SSF output if present, or mapped via
 `[gwas.cols]`):

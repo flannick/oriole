@@ -16,13 +16,23 @@ from ..options.action import Action
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..options.config import Config, GwasConfig
+    from ..options.config import Config, GwasConfig, DataAccessConfig
 from .gwas import GwasReader, GwasRecord, GwasCols, default_cols
 
 try:
-    from dig_open_data import open_text as open_data_text
+    from dig_open_data import (
+        open_text as open_data_text,
+        build_key as dig_build_key,
+        DEFAULT_BUCKET as DIG_DEFAULT_BUCKET,
+        DEFAULT_PREFIX as DIG_DEFAULT_PREFIX,
+        DEFAULT_SUFFIX as DIG_DEFAULT_SUFFIX,
+    )
 except Exception:  # pragma: no cover - optional dependency
     open_data_text = None
+    dig_build_key = None
+    DIG_DEFAULT_BUCKET = None
+    DIG_DEFAULT_PREFIX = None
+    DIG_DEFAULT_SUFFIX = None
 
 DELIM_LIST = [";", "\t", ",", " "]
 
@@ -216,9 +226,9 @@ def load_data(config: Config, action: Action) -> LoadedData:
             n_traits,
             i_trait,
             action,
+            data_access=config.data_access,
             meta_by_id=meta_by_id,
             auto_meta=allow_meta_guess,
-            base_uri=config.data_access.gwas_base_uri,
         )
         print(
             f"Loaded GWAS {gwas.name} from {gwas.file} in "
@@ -321,16 +331,16 @@ def load_gwas(
     n_traits: int,
     i_trait: int,
     action: Action,
+    data_access: "DataAccessConfig",
     meta_by_id: dict[str, VariantMetaAccumulator] | None = None,
     auto_meta: bool = False,
-    base_uri: str | None = None,
 ) -> None:
-    file = _resolve_uri(gwas_config.file, base_uri)
+    file = _resolve_gwas_path(gwas_config, data_access)
     cols = gwas_config.cols or GwasCols(
         id=default_cols.VAR_ID, effect=default_cols.BETA, se=default_cols.SE
     )
     try:
-        with _open_text(file) as handle:
+        with _open_text(file, retries=data_access.retries, download=data_access.download) as handle:
             reader = GwasReader(handle, cols, auto_meta=auto_meta)
             for record in reader:
                 var_id = record.var_id
@@ -356,9 +366,13 @@ def new_beta_se_list(n_traits: int) -> list[BetaSe]:
     return [BetaSe(beta=float("nan"), se=float("nan")) for _ in range(n_traits)]
 
 
-def _open_text(path: str) -> io.TextIOBase:
+def _open_text(path: str, *, retries: int = 3, download: bool = False) -> io.TextIOBase:
     if open_data_text is not None:
-        return open_data_text(path, encoding="utf-8")
+        return _as_iterable_text(
+            open_data_text(path, encoding="utf-8", retries=retries, download=download)
+        )
+    if path.startswith("file://"):
+        path = path[len("file://") :]
     if "://" in path:
         raise new_error(
             "Remote URI provided but dig-open-data is not installed. "
@@ -368,8 +382,8 @@ def _open_text(path: str) -> io.TextIOBase:
     magic = raw.read(2)
     raw.seek(0)
     if magic == b"\x1f\x8b":
-        return gzip.open(raw, "rt", encoding="utf-8")
-    return io.TextIOWrapper(raw, encoding="utf-8")
+        return _as_iterable_text(gzip.open(raw, "rt", encoding="utf-8"))
+    return _as_iterable_text(io.TextIOWrapper(raw, encoding="utf-8"))
 
 
 def _resolve_uri(path: str, base_uri: str | None) -> str:
@@ -380,6 +394,95 @@ def _resolve_uri(path: str, base_uri: str | None) -> str:
     base = base_uri.rstrip("/")
     rel = path.lstrip("/")
     return f"{base}/{rel}"
+
+
+class _IterableTextWrapper:
+    def __init__(self, handle: io.TextIOBase) -> None:
+        self._handle = handle
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        line = self._handle.readline()
+        if line == "":
+            raise StopIteration
+        return line
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self._handle.close()
+
+    def close(self) -> None:
+        self._handle.close()
+
+    def __getattr__(self, name):
+        return getattr(self._handle, name)
+
+
+def _as_iterable_text(handle: io.TextIOBase) -> io.TextIOBase:
+    if hasattr(type(handle), "__iter__"):
+        return handle
+    return _IterableTextWrapper(handle)
+
+
+_DIG_OPEN_DATA_URI_PREFIX = "dig-open-data:"
+
+
+def _parse_dig_open_data_uri(uri: str) -> tuple[str, str] | None:
+    if not uri.startswith(_DIG_OPEN_DATA_URI_PREFIX):
+        return None
+    parts = uri.split(":")
+    if len(parts) != 3:
+        raise new_error(
+            f"Invalid dig-open-data URI {uri!r}. Expected format: "
+            "'dig-open-data:<ancestry>:<trait>'."
+        )
+    ancestry = parts[1].strip()
+    trait = parts[2].strip()
+    if not ancestry or not trait:
+        raise new_error(
+            f"Invalid dig-open-data URI {uri!r}. Both ancestry and trait are required."
+        )
+    return ancestry, trait
+
+
+def _resolve_gwas_path(gwas_config: "GwasConfig", data_access: "DataAccessConfig") -> str:
+    uri = gwas_config.uri or gwas_config.file or ""
+    parsed = _parse_dig_open_data_uri(uri)
+    if parsed is not None:
+        if dig_build_key is None or open_data_text is None:
+            raise new_error(
+                "dig-open-data URI provided but dig-open-data is not installed."
+            )
+        ancestry, trait = parsed
+        key = dig_build_key(ancestry, trait)
+        return f"s3://{DIG_DEFAULT_BUCKET}/{key}"
+    provider = (data_access.provider or "").lower()
+    if provider == "dig_open_data":
+        if dig_build_key is None or open_data_text is None:
+            raise new_error(
+                "dig_open_data provider requested but dig-open-data is not installed."
+            )
+        if not gwas_config.trait:
+            raise new_error(
+                f"dig_open_data provider requires gwas.trait for {gwas_config.name}."
+            )
+        ancestry = data_access.ancestry
+        if not ancestry:
+            raise new_error("dig_open_data provider requires data_access.ancestry.")
+        bucket = data_access.bucket or DIG_DEFAULT_BUCKET
+        prefix = data_access.prefix or DIG_DEFAULT_PREFIX
+        suffix = data_access.suffix or DIG_DEFAULT_SUFFIX
+        key = dig_build_key(ancestry, gwas_config.trait, prefix=prefix, suffix=suffix)
+        return f"s3://{bucket}/{key}"
+    if not uri:
+        raise new_error(
+            f"GWAS entry {gwas_config.name} must set file or uri (or legacy trait/provider)."
+        )
+    return _resolve_uri(uri, data_access.gwas_base_uri)
 
 
 _VAR_ID_GUESS = re.compile(
@@ -453,7 +556,14 @@ def load_data_for_ids(config: "Config", ids: list[str]) -> GwasData:
     trait_names: list[str] = []
     for i_trait, gwas in enumerate(config.gwas):
         trait_names.append(gwas.name)
-        load_gwas(beta_se_by_id, gwas, n_traits, i_trait, Action.TRAIN)
+        load_gwas(
+            beta_se_by_id,
+            gwas,
+            n_traits,
+            i_trait,
+            Action.TRAIN,
+            data_access=config.data_access,
+        )
 
     n_data_points = len(beta_se_by_id)
     var_ids: list[str] = []

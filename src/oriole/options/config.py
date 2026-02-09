@@ -18,7 +18,9 @@ from ..data.gwas import GwasCols
 @dataclass
 class GwasConfig:
     name: str
-    file: str
+    file: Optional[str] = None
+    uri: Optional[str] = None
+    trait: Optional[str] = None
     cols: Optional[GwasCols] = None
 
 
@@ -31,6 +33,13 @@ class FilesConfig:
 @dataclass
 class DataAccessConfig:
     gwas_base_uri: Optional[str] = None
+    provider: Optional[str] = None
+    ancestry: Optional[str] = None
+    bucket: Optional[str] = None
+    prefix: Optional[str] = None
+    suffix: Optional[str] = None
+    retries: int = 3
+    download: bool = False
 
 
 @dataclass
@@ -201,16 +210,26 @@ def load_config(path: str) -> Config:
     files = FilesConfig(trace=files_data.get("trace"), params=params_path)
     data_access_data = data.get("data_access", {})
     data_access = DataAccessConfig(
-        gwas_base_uri=data_access_data.get("gwas_base_uri")
+        gwas_base_uri=data_access_data.get("gwas_base_uri"),
+        provider=data_access_data.get("provider"),
+        ancestry=data_access_data.get("ancestry"),
+        bucket=data_access_data.get("bucket"),
+        prefix=data_access_data.get("prefix"),
+        suffix=data_access_data.get("suffix"),
+        retries=int(data_access_data.get("retries", 3)),
+        download=bool(data_access_data.get("download", False)),
     )
-    gwas = [
-        GwasConfig(
-            name=item["name"],
-            file=item["file"],
-            cols=_gwas_cols_from_dict(item.get("cols")),
+    gwas = []
+    for item in data["gwas"]:
+        gwas.append(
+            GwasConfig(
+                name=item["name"],
+                file=item.get("file"),
+                uri=item.get("uri") or item.get("source"),
+                trait=item.get("trait"),
+                cols=_gwas_cols_from_dict(item.get("cols")),
+            )
         )
-        for item in data["gwas"]
-    ]
     endophenotypes = _endophenotypes_from_dicts(data.get("endophenotypes"))
     trait_edges = [
         TraitEdgeConfig(parent=item["parent"], child=item["child"])
@@ -381,7 +400,14 @@ def dump_config(config: Config) -> str:
                 "eaf": item.cols.eaf,
                 "rsid": item.cols.rsid,
             }
-        return {"name": item.name, "file": item.file, "cols": cols}
+        data = {"name": item.name, "cols": cols}
+        if item.file:
+            data["file"] = item.file
+        if item.uri:
+            data["uri"] = item.uri
+        if item.trait:
+            data["trait"] = item.trait
+        return data
 
     def classify_to_dict(item: ClassifyConfig) -> dict:
         data = {
@@ -407,7 +433,16 @@ def dump_config(config: Config) -> str:
 
     data = {
         "files": {"trace": config.files.trace, "params": config.files.params},
-        "data_access": {"gwas_base_uri": config.data_access.gwas_base_uri},
+        "data_access": {
+            "gwas_base_uri": config.data_access.gwas_base_uri,
+            "provider": config.data_access.provider,
+            "ancestry": config.data_access.ancestry,
+            "bucket": config.data_access.bucket,
+            "prefix": config.data_access.prefix,
+            "suffix": config.data_access.suffix,
+            "retries": config.data_access.retries,
+            "download": config.data_access.download,
+        },
         "gwas": [gwas_to_dict(item) for item in config.gwas],
         "endophenotypes": [
             {"name": item.name, "traits": item.traits} for item in config.endophenotypes
