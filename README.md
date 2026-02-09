@@ -112,6 +112,9 @@ might override them.
 - `retries` (default: `3`) retry count for remote streams.
 - `download` (default: `false`) download remote files to a temp path before
   reading (useful for very large gz files or flaky streams).
+- `max_memory_gb` (default: `4.0`) memory budget for classification. If the
+  estimated in-memory footprint exceeds this, ORIOLE falls back to a
+  multi-pass streaming join (slower, but lower memory).
 
 `[variants]`
 - `id_mode` (default: `id`) controls how variants are matched across inputs.

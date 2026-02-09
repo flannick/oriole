@@ -6,6 +6,7 @@ from typing import Dict
 import time
 import gzip
 import io
+import hashlib
 
 import numpy as np
 import re
@@ -73,6 +74,12 @@ def _normalize_allele(allele: str) -> str:
 
 def _locus_key(chrom: str, pos: int, ref: str, alt: str) -> str:
     return f"{chrom}:{pos}:{ref}:{alt}"
+
+
+def _bucket_for_key(key: str, n_buckets: int) -> int:
+    digest = hashlib.md5(key.encode("utf-8")).digest()
+    value = int.from_bytes(digest[:8], "big", signed=False)
+    return value % n_buckets
 
 
 @dataclass
@@ -329,6 +336,87 @@ def load_data(config: Config, action: Action) -> LoadedData:
     return LoadedData(gwas_data=gwas_data, weights=weights, variant_meta=variant_meta)
 
 
+def estimate_gwas_counts(config: Config) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for gwas in config.gwas:
+        file = _resolve_gwas_path(gwas, config.data_access)
+        try:
+            with _open_text(
+                file,
+                retries=config.data_access.retries,
+                download=config.data_access.download,
+            ) as handle:
+                count = -1
+                for count, _line in enumerate(handle):
+                    pass
+                counts[gwas.name] = max(0, count)
+        except Exception as exc:
+            raise for_context(file, exc) from exc
+    return counts
+
+
+def load_data_bucket(
+    config: Config,
+    action: Action,
+    bucket_id: int,
+    n_buckets: int,
+    flip_stats: dict[str, FlipStats] | None = None,
+) -> LoadedData:
+    if action != Action.CLASSIFY:
+        raise new_error("Bucketed loading is only supported for classification.")
+    n_traits = len(config.gwas)
+    need_meta = (
+        action == Action.CLASSIFY and config.classify.gwas_ssf_out_file is not None
+    )
+    allow_meta_guess = bool(config.classify.gwas_ssf_guess_fields) if need_meta else False
+    guess_order = (
+        config.classify.gwas_ssf_variant_id_order if need_meta else "effect_other"
+    )
+    meta_by_id: dict[str, VariantMetaAccumulator] | None = (
+        {} if need_meta else None
+    )
+    beta_se_by_id: Dict[str, IdData] = {}
+    trait_names: list[str] = []
+    for i_trait, gwas in enumerate(config.gwas):
+        trait_names.append(gwas.name)
+        load_gwas(
+            beta_se_by_id,
+            gwas,
+            n_traits,
+            i_trait,
+            action,
+            data_access=config.data_access,
+            meta_by_id=meta_by_id,
+            auto_meta=allow_meta_guess,
+            variant_mode=config.variants.id_mode,
+            flip_stats=flip_stats,
+            bucket_id=bucket_id,
+            n_buckets=n_buckets,
+        )
+
+    n_data_points = len(beta_se_by_id)
+    var_ids: list[str] = []
+    betas = matrix_fill(n_data_points, n_traits, lambda _i, _j: np.nan)
+    ses = matrix_fill(n_data_points, n_traits, lambda _i, _j: np.nan)
+
+    for i_data_point, (var_id, id_data) in enumerate(sorted(beta_se_by_id.items())):
+        var_ids.append(var_id)
+        for i_trait, beta_se in enumerate(id_data.beta_se_list):
+            betas[i_data_point, i_trait] = beta_se.beta
+            ses[i_data_point, i_trait] = beta_se.se
+
+    endo_names = [item.name for item in config.endophenotypes]
+    meta = Meta(trait_names=trait_names, var_ids=var_ids, endo_names=endo_names)
+    gwas_data = GwasData(meta=meta, betas=betas, ses=ses)
+    variant_meta = None
+    if need_meta and meta_by_id is not None:
+        variant_meta = finalize_variant_meta(
+            meta_by_id, var_ids, allow_meta_guess, guess_order
+        )
+    weights = Weights.new(n_data_points)
+    return LoadedData(gwas_data=gwas_data, weights=weights, variant_meta=variant_meta)
+
+
 def _parse_ids_header(parts: list[str]) -> dict[str, int]:
     indices: dict[str, int] = {}
     upper = [p.strip().upper() for p in parts]
@@ -442,6 +530,8 @@ def load_gwas(
     auto_meta: bool = False,
     variant_mode: str = "id",
     flip_stats: dict[str, FlipStats] | None = None,
+    bucket_id: int | None = None,
+    n_buckets: int | None = None,
 ) -> None:
     file = _resolve_gwas_path(gwas_config, data_access)
     cols = gwas_config.cols or GwasCols(
@@ -505,6 +595,9 @@ def load_gwas(
                     else:
                         if stats is not None:
                             stats.missing_id += 1
+                        continue
+                if bucket_id is not None and n_buckets is not None:
+                    if _bucket_for_key(var_id, n_buckets) != bucket_id:
                         continue
                 if var_id in beta_se_by_id:
                     beta_se_by_id[var_id].beta_se_list[i_trait] = BetaSe(beta=beta, se=se)
@@ -589,6 +682,10 @@ def _write_flip_log(path: str | None, flip_stats: dict[str, FlipStats]) -> None:
             handle.write("\n".join(lines) + "\n")
     except Exception as exc:
         print(f"Warning: failed to write flip log {path}: {exc}")
+
+
+def write_flip_log(path: str | None, flip_stats: dict[str, FlipStats]) -> None:
+    _write_flip_log(path, flip_stats)
 
 
 class _IterableTextWrapper:

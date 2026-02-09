@@ -1,8 +1,11 @@
 from .data import (
     load_data,
     load_data_for_ids,
+    load_data_bucket,
     load_ids,
     read_id_keys,
+    estimate_gwas_counts,
+    write_flip_log,
     subset_gwas_data,
     LoadedData,
     VariantMeta,
@@ -14,8 +17,11 @@ from .data import (
 __all__ = [
     "load_data",
     "load_data_for_ids",
+    "load_data_bucket",
     "load_ids",
     "read_id_keys",
+    "estimate_gwas_counts",
+    "write_flip_log",
     "subset_gwas_data",
     "LoadedData",
     "VariantMeta",

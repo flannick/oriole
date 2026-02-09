@@ -9,7 +9,16 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..check import check_params
-from ..data import GwasData, VariantMeta, load_data, Meta
+from ..data import (
+    GwasData,
+    VariantMeta,
+    load_data,
+    load_data_bucket,
+    estimate_gwas_counts,
+    write_flip_log,
+    Meta,
+)
+from ..data.data import FlipStats
 from ..error import new_error
 from ..options.action import Action
 from ..options.config import ClassifyConfig, Config
@@ -104,6 +113,40 @@ def classify_or_check(
             )
         )
         print(f"After default override, mus = {params.mus}, taus = {params.taus}")
+    max_memory_gb = config.data_access.max_memory_gb
+    use_streaming = False
+    n_variants_est = None
+    if max_memory_gb and max_memory_gb > 0:
+        counts = estimate_gwas_counts(config)
+        if counts:
+            n_variants_est = max(counts.values())
+            est_bytes = _estimate_classify_memory_bytes(
+                n_variants_est, len(config.gwas)
+            )
+            max_bytes = max_memory_gb * (1024**3)
+            use_streaming = est_bytes > max_bytes
+            print(
+                "Estimated classification memory: {:.2f} GB (max {:.2f} GB).".format(
+                    est_bytes / (1024**3), max_memory_gb
+                )
+            )
+    if use_streaming:
+        if inference_mode == "gibbs":
+            raise new_error(
+                "Streaming classification does not support Gibbs sampling. "
+                "Increase data_access.max_memory_gb or use analytic/variational inference."
+            )
+        if dry:
+            print("User picked dry run only, so doing nothing.")
+            return
+        classify_streaming(
+            config,
+            params,
+            inference=inference_mode,
+            chunk_size=chunk_size,
+            n_variants_est=n_variants_est,
+        )
+        return
     data = load_data(config, Action.CLASSIFY)
     if dry:
         print("User picked dry run only, so doing nothing.")
@@ -125,6 +168,86 @@ def _default_chunk_size(n_traits: int, n_data_points: int) -> int:
     if n_data_points > 0:
         chunk = min(chunk, n_data_points)
     return chunk
+
+
+def _estimate_classify_memory_bytes(n_variants: int, n_traits: int) -> int:
+    bytes_arrays = n_variants * n_traits * 2 * 8
+    bytes_overhead = n_variants * 1024
+    return int(bytes_arrays + bytes_overhead)
+
+
+def classify_streaming(
+    config: Config,
+    params: Params,
+    inference: str,
+    chunk_size: int | None,
+    n_variants_est: int | None,
+) -> None:
+    classify_config = config.classify
+    if not classify_config.write_full and not classify_config.gwas_ssf_out_file:
+        raise new_error(
+            "No classification outputs requested. Set classify.write_full=true and/or classify.gwas_ssf_out_file."
+        )
+    if inference not in {"analytic", "variational"}:
+        raise new_error(
+            "Streaming classification is only supported for analytic or variational inference."
+        )
+    if n_variants_est is None:
+        counts = estimate_gwas_counts(config)
+        n_variants_est = max(counts.values()) if counts else 0
+    est_bytes = _estimate_classify_memory_bytes(n_variants_est, len(config.gwas))
+    max_bytes = config.data_access.max_memory_gb * (1024**3)
+    n_buckets = max(1, math.ceil(est_bytes / max_bytes)) if max_bytes > 0 else 1
+    print(f"Using streaming classification with {n_buckets} buckets.")
+
+    full_handle = _open_output(classify_config.out_file) if classify_config.write_full else None
+    ssf_handles = None
+    ssf_header = ""
+    ssf_include: dict[str, bool] = {}
+    flip_stats: dict[str, FlipStats] = {}
+    try:
+        for bucket in range(n_buckets):
+            data = load_data_bucket(
+                config,
+                Action.CLASSIFY,
+                bucket,
+                n_buckets,
+                flip_stats=flip_stats,
+            )
+            if data.gwas_data.meta.n_data_points() == 0:
+                continue
+            if chunk_size is None or chunk_size <= 0:
+                chunk_size = _default_chunk_size(
+                    data.gwas_data.meta.n_traits(), data.gwas_data.meta.n_data_points()
+                )
+            write_header = bucket == 0
+            if ssf_handles is None and classify_config.gwas_ssf_out_file:
+                ssf_handles, ssf_header, ssf_include = _maybe_open_ssf_outputs(
+                    classify_config.gwas_ssf_out_file,
+                    data.gwas_data.meta,
+                    data.variant_meta,
+                )
+            _classify_vectorized_write(
+                data.gwas_data,
+                params,
+                classify_config,
+                inference,
+                chunk_size,
+                data.variant_meta,
+                full_handle,
+                ssf_handles,
+                ssf_header,
+                ssf_include,
+                write_header,
+                False,
+            )
+    finally:
+        if full_handle:
+            full_handle.close()
+        if ssf_handles:
+            for handle in ssf_handles.values():
+                handle.close()
+    write_flip_log(config.files.flip_log, flip_stats)
 
 
 def classify(
@@ -199,30 +322,26 @@ def classify(
     threads.close(MessageToWorker.shutdown())
 
 
-def classify_vectorized(
+def _classify_vectorized_write(
     data: GwasData,
     params: Params,
     config: ClassifyConfig,
     inference: str,
     chunk_size: int,
-    variant_meta: dict[str, VariantMeta] | None = None,
+    variant_meta: dict[str, VariantMeta] | None,
+    full_handle: io.TextIOBase | None,
+    ssf_handles: dict[str, io.TextIOBase] | None,
+    ssf_header: str,
+    ssf_include: dict[str, bool],
+    write_header: bool,
+    close_handles: bool,
 ) -> None:
-    if inference not in {"analytic", "variational"}:
-        raise new_error(
-            "Vectorized classification is only supported for analytic or variational inference."
-        )
     meta = data.meta
     n = meta.n_data_points()
-    ssf_handles, ssf_header, ssf_include = _maybe_open_ssf_outputs(
-        config.gwas_ssf_out_file,
-        meta,
-        variant_meta,
-    )
-    full_handle = _open_output(config.out_file) if config.write_full else None
     try:
-        if full_handle:
+        if full_handle and write_header:
             full_handle.write(format_header(meta))
-        if ssf_handles:
+        if ssf_handles and write_header:
             for handle in ssf_handles.values():
                 handle.write(ssf_header)
         for start in range(0, n, chunk_size):
@@ -313,11 +432,47 @@ def classify_vectorized(
                         variant_meta,
                     )
     finally:
-        if full_handle:
-            full_handle.close()
-        if ssf_handles:
-            for handle in ssf_handles.values():
-                handle.close()
+        if close_handles:
+            if full_handle:
+                full_handle.close()
+            if ssf_handles:
+                for handle in ssf_handles.values():
+                    handle.close()
+
+
+def classify_vectorized(
+    data: GwasData,
+    params: Params,
+    config: ClassifyConfig,
+    inference: str,
+    chunk_size: int,
+    variant_meta: dict[str, VariantMeta] | None = None,
+) -> None:
+    if inference not in {"analytic", "variational"}:
+        raise new_error(
+            "Vectorized classification is only supported for analytic or variational inference."
+        )
+    meta = data.meta
+    ssf_handles, ssf_header, ssf_include = _maybe_open_ssf_outputs(
+        config.gwas_ssf_out_file,
+        meta,
+        variant_meta,
+    )
+    full_handle = _open_output(config.out_file) if config.write_full else None
+    _classify_vectorized_write(
+        data,
+        params,
+        config,
+        inference,
+        chunk_size,
+        variant_meta,
+        full_handle,
+        ssf_handles,
+        ssf_header,
+        ssf_include,
+        True,
+        True,
+    )
 
 
 def write_out_file(file: str, meta: Meta, classifications: list[Classification]) -> None:
@@ -346,10 +501,10 @@ def write_gwas_ssf_files(
             handle.close()
 
 
-def _open_output(path: str):
+def _open_output(path: str, mode: str = "w"):
     if path.endswith(".gz"):
-        return gzip.open(path, "wt", encoding="utf-8")
-    return io.open(path, "w", encoding="utf-8")
+        return gzip.open(path, mode + "t", encoding="utf-8")
+    return io.open(path, mode, encoding="utf-8")
 
 
 def format_header(meta: Meta) -> str:
@@ -409,13 +564,14 @@ def _maybe_open_ssf_outputs(
     out_file: str | None,
     meta: Meta,
     variant_meta: dict[str, VariantMeta] | None,
+    mode: str = "w",
 ) -> tuple[dict[str, io.TextIOBase] | None, str, dict[str, bool]]:
     if not out_file:
         return None, "", {}
     outputs = _ssf_out_paths(out_file, meta.endo_names)
     include = _ssf_meta_columns_present(variant_meta)
     header = _ssf_header(include)
-    handles = {endo: _open_output(path) for endo, path in outputs.items()}
+    handles = {endo: _open_output(path, mode=mode) for endo, path in outputs.items()}
     return handles, header, include
 
 

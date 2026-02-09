@@ -41,6 +41,7 @@ class DataAccessConfig:
     suffix: Optional[str] = None
     retries: int = 3
     download: bool = False
+    max_memory_gb: float = 4.0
 
 
 @dataclass
@@ -226,6 +227,7 @@ def load_config(path: str) -> Config:
         suffix=data_access_data.get("suffix"),
         retries=int(data_access_data.get("retries", 3)),
         download=bool(data_access_data.get("download", False)),
+        max_memory_gb=float(data_access_data.get("max_memory_gb", 4.0)),
     )
     variants_data = data.get("variants", {})
     variant_mode = (variants_data.get("id_mode") or "id").lower()
@@ -463,6 +465,7 @@ def dump_config(config: Config) -> str:
             "suffix": config.data_access.suffix,
             "retries": config.data_access.retries,
             "download": config.data_access.download,
+            "max_memory_gb": config.data_access.max_memory_gb,
         },
         "variants": {
             "id_mode": config.variants.id_mode,
