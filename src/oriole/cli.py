@@ -44,7 +44,7 @@ def run(argv: list[str] | None = None) -> None:
     elif isinstance(choice, ScaleSigmasOptions):
         scale_sigmas(choice)
     else:
-        raise MocasaError("Mocasa error", "Unknown choice")
+        raise MocasaError("Oriole error", "Unknown choice")
 
 
 def main(argv: list[str] | None = None) -> None:

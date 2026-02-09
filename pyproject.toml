@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "oriole"
 version = "0.1.0"
-description = "Python rewrite of mocasa/oriole"
+description = "Python implementation of ORIOLE"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}

@@ -5,7 +5,7 @@ from typing import Any, TypeVar
 
 
 class ErrorKind:
-    MOCASA = "Mocasa error"
+    MOCASA = "Oriole error"
     IO = "I/O error"
     TOML_DE = "TOML deserialization error"
     TOML_SER = "TOML serialization error"
@@ -41,4 +41,3 @@ def for_context(context: str, exc: Exception) -> MocasaError:
     if isinstance(exc, MocasaError):
         return MocasaError(exc.kind, f"{context}: {exc.message}")
     return MocasaError(ErrorKind.MOCASA, f"{context}: {exc}")
-

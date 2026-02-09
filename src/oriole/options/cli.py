@@ -121,11 +121,13 @@ def get_choice(argv: list[str] | None = None):
         if not args.phenet_file:
             raise _missing_option_error("phenet opts file", "phenet-file", "i")
         if not args.params_file:
-            raise _missing_option_error("Mocasa parameters file", "params-file", "p")
+            raise _missing_option_error("Oriole parameters file", "params-file", "p")
         if not args.conf_file:
-            raise _missing_option_error("Mocasa config file", "conf-file", "f")
+            raise _missing_option_error("Oriole config file", "conf-file", "f")
         if not args.out_file:
-            raise _missing_option_error("Mocasa classification output file", "out-file", "o")
+            raise _missing_option_error(
+                "Oriole classification output file", "out-file", "o"
+            )
         return ImportPhenetOptions(
             phenet_file=args.phenet_file,
             params_file=args.params_file,
