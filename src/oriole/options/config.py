@@ -28,6 +28,7 @@ class GwasConfig:
 class FilesConfig:
     trace: Optional[str] = None
     params: str = ""
+    flip_log: Optional[str] = None
 
 
 @dataclass
@@ -40,6 +41,11 @@ class DataAccessConfig:
     suffix: Optional[str] = None
     retries: int = 3
     download: bool = False
+
+
+@dataclass
+class VariantIdConfig:
+    id_mode: str = "id"
 
 
 @dataclass
@@ -139,6 +145,7 @@ class TraitEdgeConfig:
 class Config:
     files: FilesConfig
     data_access: DataAccessConfig
+    variants: VariantIdConfig
     gwas: list[GwasConfig]
     endophenotypes: list[EndophenotypeConfig]
     trait_edges: list[TraitEdgeConfig]
@@ -208,6 +215,7 @@ def load_config(path: str) -> Config:
     if not params_path:
         params_path = str((Path(path).parent / "params_out.json").as_posix())
     files = FilesConfig(trace=files_data.get("trace"), params=params_path)
+    files.flip_log = files_data.get("flip_log")
     data_access_data = data.get("data_access", {})
     data_access = DataAccessConfig(
         gwas_base_uri=data_access_data.get("gwas_base_uri"),
@@ -219,6 +227,14 @@ def load_config(path: str) -> Config:
         retries=int(data_access_data.get("retries", 3)),
         download=bool(data_access_data.get("download", False)),
     )
+    variants_data = data.get("variants", {})
+    variant_mode = (variants_data.get("id_mode") or "id").lower()
+    if variant_mode not in {"id", "locus"}:
+        raise MocasaError(
+            ErrorKind.TOML_DE,
+            "variants.id_mode must be 'id' or 'locus'.",
+        )
+    variants = VariantIdConfig(id_mode=variant_mode)
     gwas = []
     for item in data["gwas"]:
         gwas.append(
@@ -375,6 +391,7 @@ def load_config(path: str) -> Config:
     return Config(
         files=files,
         data_access=data_access,
+        variants=variants,
         gwas=gwas,
         endophenotypes=endophenotypes,
         trait_edges=trait_edges,
@@ -432,7 +449,11 @@ def dump_config(config: Config) -> str:
         return data
 
     data = {
-        "files": {"trace": config.files.trace, "params": config.files.params},
+        "files": {
+            "trace": config.files.trace,
+            "params": config.files.params,
+            "flip_log": config.files.flip_log,
+        },
         "data_access": {
             "gwas_base_uri": config.data_access.gwas_base_uri,
             "provider": config.data_access.provider,
@@ -442,6 +463,9 @@ def dump_config(config: Config) -> str:
             "suffix": config.data_access.suffix,
             "retries": config.data_access.retries,
             "download": config.data_access.download,
+        },
+        "variants": {
+            "id_mode": config.variants.id_mode,
         },
         "gwas": [gwas_to_dict(item) for item in config.gwas],
         "endophenotypes": [

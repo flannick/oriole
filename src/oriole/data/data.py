@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict
 import time
 import gzip
@@ -35,6 +36,43 @@ except Exception:  # pragma: no cover - optional dependency
     DIG_DEFAULT_SUFFIX = None
 
 DELIM_LIST = [";", "\t", ",", " "]
+_LOCUS_HEADERS = {
+    "chrom": {"CHR", "CHROM", "CHROMOSOME", "#CHROM"},
+    "pos": {"BP", "POS", "POSITION", "BASE_PAIR_LOCATION"},
+    "ref": {"REF", "REF_ALLELE"},
+    "alt": {"ALT", "ALT_ALLELE"},
+    "weight": {"WEIGHT", "WEIGHTS"},
+}
+
+
+@dataclass
+class FlipStats:
+    matched: int = 0
+    flipped: int = 0
+    missing_meta: int = 0
+    missing_id: int = 0
+
+
+def _detect_delim(line: str) -> str:
+    for delim in DELIM_LIST:
+        if delim in line:
+            return delim
+    return " "
+
+
+def _normalize_chrom(chrom: str) -> str:
+    chrom = chrom.strip()
+    if chrom.lower().startswith("chr"):
+        chrom = chrom[3:]
+    return chrom
+
+
+def _normalize_allele(allele: str) -> str:
+    return allele.strip().upper()
+
+
+def _locus_key(chrom: str, pos: int, ref: str, alt: str) -> str:
+    return f"{chrom}:{pos}:{ref}:{alt}"
 
 
 @dataclass
@@ -203,10 +241,11 @@ def load_data(config: Config, action: Action) -> LoadedData:
     meta_by_id: dict[str, VariantMetaAccumulator] | None = (
         {} if need_meta else None
     )
+    variant_mode = config.variants.id_mode
     if action == Action.TRAIN:
         print(f"Loading training IDs from {config.train.ids_file}")
         ids_start = time.perf_counter()
-        beta_se_by_id = load_ids(config.train.ids_file, n_traits)
+        beta_se_by_id = load_ids(config.train.ids_file, n_traits, variant_mode)
         print(
             f"Loaded {len(beta_se_by_id)} training IDs in "
             f"{time.perf_counter() - ids_start:.2f}s"
@@ -217,6 +256,7 @@ def load_data(config: Config, action: Action) -> LoadedData:
 
     trait_names: list[str] = []
     gwas_start = time.perf_counter()
+    flip_stats: dict[str, FlipStats] = {}
     for i_trait, gwas in enumerate(config.gwas):
         trait_names.append(gwas.name)
         trait_start = time.perf_counter()
@@ -229,12 +269,16 @@ def load_data(config: Config, action: Action) -> LoadedData:
             data_access=config.data_access,
             meta_by_id=meta_by_id,
             auto_meta=allow_meta_guess,
+            variant_mode=variant_mode,
+            flip_stats=flip_stats,
         )
+        gwas_label = gwas.uri or gwas.file or ""
         print(
-            f"Loaded GWAS {gwas.name} from {gwas.file} in "
+            f"Loaded GWAS {gwas.name} from {gwas_label} in "
             f"{time.perf_counter() - trait_start:.2f}s"
         )
     print(f"Finished GWAS load in {time.perf_counter() - gwas_start:.2f}s")
+    _write_flip_log(config.files.flip_log, flip_stats)
 
     n_data_points = len(beta_se_by_id)
     var_ids: list[str] = []
@@ -285,41 +329,103 @@ def load_data(config: Config, action: Action) -> LoadedData:
     return LoadedData(gwas_data=gwas_data, weights=weights, variant_meta=variant_meta)
 
 
-def load_ids(ids_file: str, n_traits: int) -> Dict[str, IdData]:
-    beta_se_by_id: Dict[str, IdData] = {}
-    this_might_still_be_header = True
-    splitter = re.compile(r"[;\t, ]+")
-    try:
-        with _open_text(ids_file) as handle:
+def _parse_ids_header(parts: list[str]) -> dict[str, int]:
+    indices: dict[str, int] = {}
+    upper = [p.strip().upper() for p in parts]
+    for i, value in enumerate(upper):
+        if value in _LOCUS_HEADERS["chrom"]:
+            indices["chrom"] = i
+        elif value in _LOCUS_HEADERS["pos"]:
+            indices["pos"] = i
+        elif value in _LOCUS_HEADERS["ref"]:
+            indices["ref"] = i
+        elif value in _LOCUS_HEADERS["alt"]:
+            indices["alt"] = i
+        elif value in _LOCUS_HEADERS["weight"]:
+            indices["weight"] = i
+    return indices
+
+
+def _read_ids_rows(ids_file: str, variant_mode: str) -> list[tuple[str, float]]:
+    rows: list[tuple[str, float]] = []
+    if ids_file == "":
+        return rows
+    with _open_text(ids_file) as handle:
+        try:
+            first = next(handle)
+        except StopIteration:
+            return rows
+        first = first.strip()
+        if first == "":
+            return rows
+        delim = _detect_delim(first)
+        parts = first.split(delim) if delim != " " else first.split()
+        if variant_mode == "id":
+            header_seen = parts[0] in ("varId", "VAR_ID", "VARID", "id")
+            if not header_seen:
+                weight = float(parts[1]) if len(parts) > 1 else 1.0
+                rows.append((parts[0], weight))
             for line in handle:
                 line = line.strip()
-                if not line:
+                if line == "":
                     continue
-                parts = [part for part in splitter.split(line) if part != ""]
-                if len(parts) == 1:
-                    id_value = parts[0]
-                    weight_str = None
-                else:
-                    id_value, weight_str = parts[0], parts[1]
-                if id_value:
-                    beta_se_list = new_beta_se_list(n_traits)
-                    if weight_str is None:
-                        weight = 1.0
-                        this_might_still_be_header = False
-                        beta_se_by_id[id_value] = IdData(beta_se_list, weight)
-                    else:
-                        try:
-                            weight = float(weight_str)
-                        except ValueError as exc:
-                            if this_might_still_be_header:
-                                continue
-                            raise for_context(
-                                f"Error parsing weight for id {id_value}", exc
-                            ) from exc
-                        this_might_still_be_header = False
-                        if weight < 0.0:
-                            raise new_error(f"Negative weight ({weight}) for id {id_value}")
-                        beta_se_by_id[id_value] = IdData(beta_se_list, weight)
+                parts = line.split(delim) if delim != " " else line.split()
+                if header_seen and parts[0] in ("varId", "VAR_ID", "VARID", "id"):
+                    continue
+                weight = float(parts[1]) if len(parts) > 1 else 1.0
+                rows.append((parts[0], weight))
+            return rows
+
+        header = _parse_ids_header(parts)
+        required = {"chrom", "pos", "ref", "alt"}
+        if not required.issubset(header.keys()):
+            raise new_error(
+                "ids_file in locus mode must include columns for chrom, pos, ref, alt."
+            )
+
+        def parse_row(values: list[str]) -> tuple[str, float] | None:
+            try:
+                chrom = _normalize_chrom(values[header["chrom"]])
+                pos = int(values[header["pos"]])
+                ref = _normalize_allele(values[header["ref"]])
+                alt = _normalize_allele(values[header["alt"]])
+            except (IndexError, ValueError):
+                return None
+            weight = 1.0
+            if "weight" in header:
+                try:
+                    weight = float(values[header["weight"]])
+                except (IndexError, ValueError):
+                    weight = 1.0
+            return _locus_key(chrom, pos, ref, alt), weight
+
+        for line in handle:
+            line = line.strip()
+            if line == "":
+                continue
+            values = line.split(delim) if delim != " " else line.split()
+            parsed = parse_row(values)
+            if parsed is None:
+                continue
+            rows.append(parsed)
+    return rows
+
+
+def read_id_keys(ids_file: str, variant_mode: str) -> list[str]:
+    return [key for key, _weight in _read_ids_rows(ids_file, variant_mode)]
+
+
+def load_ids(ids_file: str, n_traits: int, variant_mode: str) -> Dict[str, IdData]:
+    beta_se_by_id: Dict[str, IdData] = {}
+    if ids_file == "":
+        return beta_se_by_id
+    try:
+        for id_value, weight in _read_ids_rows(ids_file, variant_mode):
+            if id_value not in beta_se_by_id:
+                beta_se_list = new_beta_se_list(n_traits)
+                if weight < 0.0:
+                    raise new_error(f"Negative weight ({weight}) for id {id_value}")
+                beta_se_by_id[id_value] = IdData(beta_se_list, weight)
     except Exception as exc:
         raise for_file(ids_file, exc) from exc
     return beta_se_by_id
@@ -334,30 +440,101 @@ def load_gwas(
     data_access: "DataAccessConfig",
     meta_by_id: dict[str, VariantMetaAccumulator] | None = None,
     auto_meta: bool = False,
+    variant_mode: str = "id",
+    flip_stats: dict[str, FlipStats] | None = None,
 ) -> None:
     file = _resolve_gwas_path(gwas_config, data_access)
     cols = gwas_config.cols or GwasCols(
         id=default_cols.VAR_ID, effect=default_cols.BETA, se=default_cols.SE
     )
+    stats = None
+    if flip_stats is not None:
+        stats = flip_stats.get(gwas_config.name)
+        if stats is None:
+            stats = FlipStats()
+            flip_stats[gwas_config.name] = stats
     try:
         with _open_text(file, retries=data_access.retries, download=data_access.download) as handle:
             reader = GwasReader(handle, cols, auto_meta=auto_meta)
+            if variant_mode == "locus":
+                missing_cols = []
+                if reader._i_chr is None:
+                    missing_cols.append("chrom")
+                if reader._i_pos is None:
+                    missing_cols.append("pos")
+                if reader._i_effect_allele is None:
+                    missing_cols.append("effect_allele")
+                if reader._i_other_allele is None:
+                    missing_cols.append("other_allele")
+                if missing_cols:
+                    raise new_error(
+                        "GWAS file must provide {} columns when variants.id_mode='locus'.".format(
+                            ", ".join(missing_cols)
+                        )
+                    )
             for record in reader:
-                var_id = record.var_id
                 beta = record.beta
                 se = record.se
+                flipped = False
+                if variant_mode == "id":
+                    var_id = record.var_id
+                else:
+                    if (
+                        record.chrom is None
+                        or record.pos is None
+                        or record.effect_allele is None
+                        or record.other_allele is None
+                    ):
+                        if stats is not None:
+                            stats.missing_meta += 1
+                        continue
+                    chrom = _normalize_chrom(record.chrom)
+                    pos = record.pos
+                    ref = _normalize_allele(record.other_allele)
+                    alt = _normalize_allele(record.effect_allele)
+                    key_direct = _locus_key(chrom, pos, ref, alt)
+                    key_flip = _locus_key(chrom, pos, alt, ref)
+                    if key_direct in beta_se_by_id:
+                        var_id = key_direct
+                    elif key_flip in beta_se_by_id:
+                        var_id = key_flip
+                        beta = -beta
+                        flipped = True
+                    elif action == Action.CLASSIFY:
+                        var_id = key_direct
+                    else:
+                        if stats is not None:
+                            stats.missing_id += 1
+                        continue
                 if var_id in beta_se_by_id:
                     beta_se_by_id[var_id].beta_se_list[i_trait] = BetaSe(beta=beta, se=se)
                 elif action == Action.CLASSIFY:
                     beta_se_list = new_beta_se_list(n_traits)
                     beta_se_list[i_trait] = BetaSe(beta=beta, se=se)
                     beta_se_by_id[var_id] = IdData(beta_se_list, 1.0)
+                if stats is not None:
+                    stats.matched += 1
+                    if flipped:
+                        stats.flipped += 1
                 if meta_by_id is not None:
+                    meta_record = record
+                    if flipped:
+                        meta_record = GwasRecord(
+                            var_id=record.var_id,
+                            beta=record.beta,
+                            se=record.se,
+                            chrom=record.chrom,
+                            pos=record.pos,
+                            effect_allele=record.other_allele,
+                            other_allele=record.effect_allele,
+                            eaf=record.eaf,
+                            rsid=record.rsid,
+                        )
                     accumulator = meta_by_id.get(var_id)
                     if accumulator is None:
                         accumulator = VariantMetaAccumulator()
                         meta_by_id[var_id] = accumulator
-                    accumulator.add_record(record, gwas_config.name, var_id)
+                    accumulator.add_record(meta_record, gwas_config.name, var_id)
     except Exception as exc:
         raise for_context(file, exc) from exc
 
@@ -394,6 +571,24 @@ def _resolve_uri(path: str, base_uri: str | None) -> str:
     base = base_uri.rstrip("/")
     rel = path.lstrip("/")
     return f"{base}/{rel}"
+
+
+def _write_flip_log(path: str | None, flip_stats: dict[str, FlipStats]) -> None:
+    if not path:
+        return
+    lines = ["gwas\tmatched\tflipped\tmissing_meta\tmissing_id"]
+    for gwas_name in sorted(flip_stats.keys()):
+        stats = flip_stats[gwas_name]
+        lines.append(
+            f"{gwas_name}\t{stats.matched}\t{stats.flipped}\t"
+            f"{stats.missing_meta}\t{stats.missing_id}"
+        )
+    try:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(lines) + "\n")
+    except Exception as exc:
+        print(f"Warning: failed to write flip log {path}: {exc}")
 
 
 class _IterableTextWrapper:
@@ -563,6 +758,7 @@ def load_data_for_ids(config: "Config", ids: list[str]) -> GwasData:
             i_trait,
             Action.TRAIN,
             data_access=config.data_access,
+            variant_mode=config.variants.id_mode,
         )
 
     n_data_points = len(beta_se_by_id)

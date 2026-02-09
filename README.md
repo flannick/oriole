@@ -88,6 +88,8 @@ might override them.
   trained parameters are written; override to keep runs separated.
 - `trace` (default: none) writes per-iteration parameter traces; enable when
   diagnosing convergence or debugging optimization.
+- `flip_log` (default: none) writes a per-GWAS summary of allele flips when
+  `variants.id_mode = "locus"`.
 
 `[[gwas]]`
 - `name` (required) names the trait; should match other sections and params.
@@ -104,6 +106,12 @@ might override them.
 - `retries` (default: `3`) retry count for remote streams.
 - `download` (default: `false`) download remote files to a temp path before
   reading (useful for very large gz files or flaky streams).
+
+`[variants]`
+- `id_mode` (default: `id`) controls how variants are matched across inputs.
+  - `id`: match on a single identifier column (default behavior).
+  - `locus`: match on `chrom/pos/ref/alt` with automatic flipping if
+    `ref/alt` are swapped in the GWAS files.
 
 `[endophenotypes]`
 - If omitted, a single endophenotype `E` connects to all traits (`"*"`).
@@ -523,6 +531,20 @@ VAR_ID   WEIGHT
 ```
 
 If no weight is provided, it defaults to 1.0.
+
+If you set `variants.id_mode = "locus"`, the ID list must include columns for
+`chrom`, `pos`, `ref`, and `alt` (plus optional `weight`). Example:
+
+```
+CHROM\tPOS\tREF\tALT\tWEIGHT
+1\t752566\tA\tG\t1.0
+```
+
+When `variants.id_mode = "locus"`, GWAS files must include columns for
+`chrom`, `pos`, `effect_allele`, and `other_allele` (you can map these using
+`[gwas.cols]`). ORIOLE will match variants by `chrom/pos/ref/alt` and will flip
+the sign of `beta` when `ref/alt` are swapped. A summary of flips is written to
+`files.flip_log` when configured.
 
 ---
 

@@ -59,7 +59,7 @@ def train_or_check(
     if config.tune_outliers.enabled:
         cache = build_tune_cache(config)
         tune_cache = cache
-        weight_map = load_ids(config.train.ids_file, n_traits)
+        weight_map = load_ids(config.train.ids_file, n_traits, config.variants.id_mode)
         weights_list: list[float] = []
         total_weight = 0.0
         for var_id in cache.pos_data.meta.var_ids:

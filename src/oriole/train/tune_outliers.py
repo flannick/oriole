@@ -4,12 +4,11 @@ from dataclasses import dataclass
 from typing import Iterable
 import math
 import random
-import re
 import time
 
 import numpy as np
 
-from ..data import GwasData, load_data_for_ids, subset_gwas_data
+from ..data import GwasData, load_data_for_ids, subset_gwas_data, read_id_keys
 from ..options.config import Config
 from ..options.inference import resolve_inference
 from ..params import Params
@@ -48,17 +47,8 @@ class TuneCache:
     pos_index: dict[str, int]
 
 
-def _read_ids(ids_file: str) -> list[str]:
-    ids: list[str] = []
-    with open(ids_file, "r", encoding="utf-8") as handle:
-        for line in handle:
-            parts = re.split(r"[;\t, ]+", line.strip())
-            if not parts:
-                continue
-            if parts[0] in ("varId", "VAR_ID", "VARID", "id"):
-                continue
-            ids.append(parts[0])
-    return ids
+def _read_ids(ids_file: str, variant_mode: str) -> list[str]:
+    return read_id_keys(ids_file, variant_mode)
 
 
 def _sample_ids(ids: list[str], n: int, rng: random.Random) -> list[str]:
@@ -216,13 +206,13 @@ class LoadedDataShim:
 def build_tune_cache(config: Config) -> TuneCache:
     tune = config.tune_outliers
     rng = random.Random(tune.seed)
-    positives = _read_ids(config.train.ids_file)
+    positives = _read_ids(config.train.ids_file, config.variants.id_mode)
     folds = _folds(positives, tune.n_folds, rng)
 
     background_ids: list[str] = []
     genome_ids: list[str] = []
     if tune.genomewide_ids_file:
-        genome_ids = _read_ids(tune.genomewide_ids_file)
+        genome_ids = _read_ids(tune.genomewide_ids_file, config.variants.id_mode)
         genome_ids = [v for v in genome_ids if v not in set(positives)]
         if tune.n_background_sample > len(genome_ids):
             raise ValueError(
@@ -233,7 +223,7 @@ def build_tune_cache(config: Config) -> TuneCache:
 
     hard_ids: list[str] = []
     if tune.negative_ids_file:
-        neg_ids = _read_ids(tune.negative_ids_file)
+        neg_ids = _read_ids(tune.negative_ids_file, config.variants.id_mode)
         neg_ids = [v for v in neg_ids if v not in set(positives)]
         if tune.n_negative_sample > len(neg_ids):
             raise ValueError(
