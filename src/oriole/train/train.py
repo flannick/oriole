@@ -8,6 +8,7 @@ import numpy as np
 from ..data import load_data, load_ids, LoadedData, Weights
 from ..error import new_error
 from ..options.action import Action
+from ..data.data import resolve_variant_mode
 from ..options.config import Config, endophenotype_mask
 from ..options.inference import resolve_inference, build_outlier_pis
 from ..params import Params, write_params_to_file
@@ -59,7 +60,11 @@ def train_or_check(
     if config.tune_outliers.enabled:
         cache = build_tune_cache(config)
         tune_cache = cache
-        weight_map = load_ids(config.train.ids_file, n_traits, config.variants.id_mode)
+        weight_map = load_ids(
+            config.train.ids_file,
+            n_traits,
+            resolve_variant_mode(config, Action.TRAIN),
+        )
         weights_list: list[float] = []
         total_weight = 0.0
         for var_id in cache.pos_data.meta.var_ids:

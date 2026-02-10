@@ -117,10 +117,13 @@ might override them.
   multi-pass streaming join (slower, but lower memory).
 
 `[variants]`
-- `id_mode` (default: `id`) controls how variants are matched across inputs.
-  - `id`: match on a single identifier column (default behavior).
+- `id_mode` (default: `auto`) controls how variants are matched across inputs.
+  - `id`: match on a single identifier column.
   - `locus`: match on `chrom/pos/ref/alt` with automatic flipping if
     `ref/alt` are swapped in the GWAS files.
+  - `auto`: parse IDs that look like `chrom:pos:ref:alt` (or similar) and
+    fall back to raw IDs for everything else. If both formats appear, ORIOLE
+    emits a one-time warning and proceeds.
 
 `[endophenotypes]`
 - If omitted, a single endophenotype `E` connects to all traits (`"*"`).
@@ -554,6 +557,10 @@ If you set `variants.id_mode = "locus"`, the ID list must include columns for
 CHROM\tPOS\tREF\tALT\tWEIGHT
 1\t752566\tA\tG\t1.0
 ```
+
+When `variants.id_mode = "auto"`, ORIOLE will parse locus-style IDs when it can
+and use raw IDs otherwise (useful when a file mixes rsIDs and locus IDs). It
+prints a warning once per file if mixed formats are detected.
 
 When `variants.id_mode = "locus"`, GWAS files must include columns for
 `chrom`, `pos`, `effect_allele`, and `other_allele` (you can map these using

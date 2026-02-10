@@ -9,7 +9,9 @@ import time
 import numpy as np
 
 from ..data import GwasData, load_data_for_ids, subset_gwas_data, read_id_keys
+from ..data.data import resolve_variant_mode
 from ..options.config import Config
+from ..options.action import Action
 from ..options.inference import resolve_inference
 from ..params import Params
 from ..train.initial_params import estimate_initial_params
@@ -206,13 +208,15 @@ class LoadedDataShim:
 def build_tune_cache(config: Config) -> TuneCache:
     tune = config.tune_outliers
     rng = random.Random(tune.seed)
-    positives = _read_ids(config.train.ids_file, config.variants.id_mode)
+    positives = _read_ids(config.train.ids_file, resolve_variant_mode(config, Action.TRAIN))
     folds = _folds(positives, tune.n_folds, rng)
 
     background_ids: list[str] = []
     genome_ids: list[str] = []
     if tune.genomewide_ids_file:
-        genome_ids = _read_ids(tune.genomewide_ids_file, config.variants.id_mode)
+        genome_ids = _read_ids(
+            tune.genomewide_ids_file, resolve_variant_mode(config, Action.TRAIN)
+        )
         genome_ids = [v for v in genome_ids if v not in set(positives)]
         if tune.n_background_sample > len(genome_ids):
             raise ValueError(
@@ -223,7 +227,9 @@ def build_tune_cache(config: Config) -> TuneCache:
 
     hard_ids: list[str] = []
     if tune.negative_ids_file:
-        neg_ids = _read_ids(tune.negative_ids_file, config.variants.id_mode)
+        neg_ids = _read_ids(
+            tune.negative_ids_file, resolve_variant_mode(config, Action.TRAIN)
+        )
         neg_ids = [v for v in neg_ids if v not in set(positives)]
         if tune.n_negative_sample > len(neg_ids):
             raise ValueError(

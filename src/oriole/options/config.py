@@ -42,11 +42,14 @@ class DataAccessConfig:
     retries: int = 3
     download: bool = False
     max_memory_gb: float = 4.0
+    cache_dir: Optional[str] = None
+    cache_max_bytes: Optional[int] = None
+    cache_ttl_days: Optional[int] = None
 
 
 @dataclass
 class VariantIdConfig:
-    id_mode: str = "id"
+    id_mode: str = "auto"
 
 
 @dataclass
@@ -228,13 +231,24 @@ def load_config(path: str) -> Config:
         retries=int(data_access_data.get("retries", 3)),
         download=bool(data_access_data.get("download", False)),
         max_memory_gb=float(data_access_data.get("max_memory_gb", 4.0)),
+        cache_dir=data_access_data.get("cache_dir"),
+        cache_max_bytes=(
+            int(data_access_data["cache_max_bytes"])
+            if data_access_data.get("cache_max_bytes") is not None
+            else None
+        ),
+        cache_ttl_days=(
+            int(data_access_data["cache_ttl_days"])
+            if data_access_data.get("cache_ttl_days") is not None
+            else None
+        ),
     )
     variants_data = data.get("variants", {})
-    variant_mode = (variants_data.get("id_mode") or "id").lower()
-    if variant_mode not in {"id", "locus"}:
+    variant_mode = (variants_data.get("id_mode") or "auto").lower()
+    if variant_mode not in {"id", "locus", "auto"}:
         raise MocasaError(
             ErrorKind.TOML_DE,
-            "variants.id_mode must be 'id' or 'locus'.",
+            "variants.id_mode must be 'id', 'locus', or 'auto'.",
         )
     variants = VariantIdConfig(id_mode=variant_mode)
     gwas = []
@@ -466,6 +480,9 @@ def dump_config(config: Config) -> str:
             "retries": config.data_access.retries,
             "download": config.data_access.download,
             "max_memory_gb": config.data_access.max_memory_gb,
+            "cache_dir": config.data_access.cache_dir,
+            "cache_max_bytes": config.data_access.cache_max_bytes,
+            "cache_ttl_days": config.data_access.cache_ttl_days,
         },
         "variants": {
             "id_mode": config.variants.id_mode,

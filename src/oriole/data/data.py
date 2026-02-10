@@ -28,6 +28,7 @@ try:
         DEFAULT_BUCKET as DIG_DEFAULT_BUCKET,
         DEFAULT_PREFIX as DIG_DEFAULT_PREFIX,
         DEFAULT_SUFFIX as DIG_DEFAULT_SUFFIX,
+        CacheConfig as DigCacheConfig,
     )
 except Exception:  # pragma: no cover - optional dependency
     open_data_text = None
@@ -35,6 +36,7 @@ except Exception:  # pragma: no cover - optional dependency
     DIG_DEFAULT_BUCKET = None
     DIG_DEFAULT_PREFIX = None
     DIG_DEFAULT_SUFFIX = None
+    DigCacheConfig = None
 
 DELIM_LIST = [";", "\t", ",", " "]
 _LOCUS_HEADERS = {
@@ -248,7 +250,7 @@ def load_data(config: Config, action: Action) -> LoadedData:
     meta_by_id: dict[str, VariantMetaAccumulator] | None = (
         {} if need_meta else None
     )
-    variant_mode = config.variants.id_mode
+    variant_mode = resolve_variant_mode(config, action)
     if action == Action.TRAIN:
         print(f"Loading training IDs from {config.train.ids_file}")
         ids_start = time.perf_counter()
@@ -338,6 +340,7 @@ def load_data(config: Config, action: Action) -> LoadedData:
 
 def estimate_gwas_counts(config: Config) -> dict[str, int]:
     counts: dict[str, int] = {}
+    cache = _build_dig_cache(config.data_access)
     for gwas in config.gwas:
         file = _resolve_gwas_path(gwas, config.data_access)
         try:
@@ -345,6 +348,7 @@ def estimate_gwas_counts(config: Config) -> dict[str, int]:
                 file,
                 retries=config.data_access.retries,
                 download=config.data_access.download,
+                cache=cache,
             ) as handle:
                 count = -1
                 for count, _line in enumerate(handle):
@@ -451,6 +455,15 @@ def _read_ids_rows(ids_file: str, variant_mode: str) -> list[tuple[str, float]]:
         if variant_mode == "id":
             header_seen = parts[0] in ("varId", "VAR_ID", "VARID", "id")
             if not header_seen:
+                upper = [p.strip().upper() for p in parts]
+                if (
+                    set(upper).intersection(_LOCUS_HEADERS["chrom"])
+                    and set(upper).intersection(_LOCUS_HEADERS["pos"])
+                    and set(upper).intersection(_LOCUS_HEADERS["ref"])
+                    and set(upper).intersection(_LOCUS_HEADERS["alt"])
+                ):
+                    header_seen = True
+            if not header_seen:
                 weight = float(parts[1]) if len(parts) > 1 else 1.0
                 rows.append((parts[0], weight))
             for line in handle:
@@ -463,6 +476,52 @@ def _read_ids_rows(ids_file: str, variant_mode: str) -> list[tuple[str, float]]:
                 weight = float(parts[1]) if len(parts) > 1 else 1.0
                 rows.append((parts[0], weight))
             return rows
+
+        if variant_mode == "auto":
+            upper = [p.strip().upper() for p in parts]
+            has_locus_header = (
+                set(upper).intersection(_LOCUS_HEADERS["chrom"])
+                and set(upper).intersection(_LOCUS_HEADERS["pos"])
+                and set(upper).intersection(_LOCUS_HEADERS["ref"])
+                and set(upper).intersection(_LOCUS_HEADERS["alt"])
+            )
+            if has_locus_header:
+                variant_mode = "locus"
+            else:
+                seen_locus = False
+                seen_id = False
+                header_seen = parts[0] in ("varId", "VAR_ID", "VARID", "id")
+
+                def handle_row(values: list[str]) -> None:
+                    nonlocal seen_locus, seen_id
+                    if not values:
+                        return
+                    parsed = _parse_locus_id(values[0])
+                    weight = float(values[1]) if len(values) > 1 else 1.0
+                    if parsed is None:
+                        rows.append((values[0], weight))
+                        seen_id = True
+                    else:
+                        chrom, pos, ref, alt = parsed
+                        rows.append((_locus_key(chrom, pos, ref, alt), weight))
+                        seen_locus = True
+
+                if not header_seen:
+                    handle_row(parts)
+                for line in handle:
+                    line = line.strip()
+                    if line == "":
+                        continue
+                    values = line.split(delim) if delim != " " else line.split()
+                    if header_seen and values and values[0] in ("varId", "VAR_ID", "VARID", "id"):
+                        continue
+                    handle_row(values)
+                if seen_locus and seen_id:
+                    print(
+                        f"Warning: mixed variant ID formats detected in {ids_file}. "
+                        "Parsed locus IDs when possible and kept raw IDs otherwise."
+                    )
+                return rows
 
         header = _parse_ids_header(parts)
         required = {"chrom", "pos", "ref", "alt"}
@@ -519,6 +578,102 @@ def load_ids(ids_file: str, n_traits: int, variant_mode: str) -> Dict[str, IdDat
     return beta_se_by_id
 
 
+def _detect_locus_id_format(value: str) -> bool:
+    return _VAR_ID_GUESS.match(value.strip()) is not None
+
+
+def _parse_locus_id(value: str) -> tuple[str, int, str, str] | None:
+    match = _VAR_ID_GUESS.match(value.strip())
+    if not match:
+        return None
+    chrom = _normalize_chrom(match.group("chrom"))
+    pos = int(match.group("pos"))
+    ref = _normalize_allele(match.group("a1"))
+    alt = _normalize_allele(match.group("a2"))
+    return chrom, pos, ref, alt
+
+
+def _detect_variant_mode_from_ids(ids_file: str) -> str:
+    try:
+        with _open_text(ids_file) as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                parts = re.split(r"[;\t, ]+", line)
+                upper = [p.strip().upper() for p in parts]
+                if set(upper).intersection(_LOCUS_HEADERS["chrom"]) and set(
+                    upper
+                ).intersection(_LOCUS_HEADERS["pos"]) and set(upper).intersection(
+                    _LOCUS_HEADERS["ref"]
+                ) and set(
+                    upper
+                ).intersection(
+                    _LOCUS_HEADERS["alt"]
+                ):
+                    return "locus"
+                if parts[0].upper() in ("VAR_ID", "VARID", "VARID", "ID", "VARID"):
+                    continue
+                return "locus" if _detect_locus_id_format(parts[0]) else "id"
+    except Exception:
+        return "id"
+    return "id"
+
+
+def _detect_variant_mode_from_gwas(config: "Config") -> str:
+    if not config.gwas:
+        return "id"
+    gwas = config.gwas[0]
+    file = _resolve_gwas_path(gwas, config.data_access)
+    try:
+        cache = _build_dig_cache(config.data_access)
+        with _open_text(
+            file,
+            retries=config.data_access.retries,
+            download=config.data_access.download,
+            cache=cache,
+        ) as handle:
+            header = handle.readline().strip()
+            first_line = handle.readline().strip()
+    except Exception:
+        return "id"
+    if not header:
+        return "id"
+    delim = _detect_delim(header)
+    parts = header.split(delim) if delim != " " else header.split()
+    upper = {p.strip().upper() for p in parts}
+    if (
+        upper.intersection(_LOCUS_HEADERS["chrom"])
+        and upper.intersection(_LOCUS_HEADERS["pos"])
+        and upper.intersection(_LOCUS_HEADERS["ref"])
+        and upper.intersection(_LOCUS_HEADERS["alt"])
+    ):
+        return "locus"
+    if first_line:
+        cols = gwas.cols or GwasCols(
+            id=default_cols.VAR_ID, effect=default_cols.BETA, se=default_cols.SE
+        )
+        try:
+            reader = GwasReader([header, first_line], cols, auto_meta=False)
+            record = next(reader)
+            if _detect_locus_id_format(record.var_id):
+                return "locus"
+        except Exception:
+            pass
+    return "id"
+
+
+def resolve_variant_mode(config: "Config", action: Action) -> str:
+    mode = config.variants.id_mode.lower()
+    if mode in {"id", "locus"}:
+        return mode
+    if mode == "auto":
+        return "auto"
+    if action == Action.TRAIN:
+        return _detect_variant_mode_from_ids(config.train.ids_file)
+    return _detect_variant_mode_from_gwas(config)
+
+
 def load_gwas(
     beta_se_by_id: Dict[str, IdData],
     gwas_config: "GwasConfig",
@@ -543,9 +698,19 @@ def load_gwas(
         if stats is None:
             stats = FlipStats()
             flip_stats[gwas_config.name] = stats
+    mixed_seen_locus = False
+    mixed_seen_id = False
+    mixed_warned = False
     try:
-        with _open_text(file, retries=data_access.retries, download=data_access.download) as handle:
+        cache = _build_dig_cache(data_access)
+        with _open_text(
+            file,
+            retries=data_access.retries,
+            download=data_access.download,
+            cache=cache,
+        ) as handle:
             reader = GwasReader(handle, cols, auto_meta=auto_meta)
+            first_record = None
             if variant_mode == "locus":
                 missing_cols = []
                 if reader._i_chr is None:
@@ -557,31 +722,100 @@ def load_gwas(
                 if reader._i_other_allele is None:
                     missing_cols.append("other_allele")
                 if missing_cols:
-                    raise new_error(
-                        "GWAS file must provide {} columns when variants.id_mode='locus'.".format(
-                            ", ".join(missing_cols)
+                    try:
+                        first_record = next(reader)
+                    except StopIteration:
+                        return
+                    if not _detect_locus_id_format(first_record.var_id):
+                        raise new_error(
+                            "GWAS file must provide {} columns or locus-formatted IDs when variants.id_mode='locus'.".format(
+                                ", ".join(missing_cols)
+                            )
                         )
-                    )
-            for record in reader:
+
+            def process_record(record: GwasRecord) -> None:
+                nonlocal mixed_seen_locus, mixed_seen_id, mixed_warned
                 beta = record.beta
                 se = record.se
                 flipped = False
                 if variant_mode == "id":
                     var_id = record.var_id
-                else:
+                elif variant_mode == "auto":
+                    parsed = None
                     if (
-                        record.chrom is None
-                        or record.pos is None
-                        or record.effect_allele is None
-                        or record.other_allele is None
+                        record.chrom is not None
+                        and record.pos is not None
+                        and record.effect_allele is not None
+                        and record.other_allele is not None
                     ):
+                        chrom = _normalize_chrom(record.chrom)
+                        pos = record.pos
+                        ref = _normalize_allele(record.other_allele)
+                        alt = _normalize_allele(record.effect_allele)
+                        parsed = (chrom, pos, ref, alt)
+                    else:
+                        parsed = _parse_locus_id(record.var_id)
+                    if parsed is None:
+                        mixed_seen_id = True
+                        if mixed_seen_locus and not mixed_warned:
+                            print(
+                                f"Warning: mixed variant ID formats detected in GWAS {gwas_config.name}. "
+                                "Parsed locus IDs when possible and kept raw IDs otherwise."
+                            )
+                            mixed_warned = True
+                        var_id = record.var_id
+                    else:
+                        mixed_seen_locus = True
+                        if mixed_seen_id and not mixed_warned:
+                            print(
+                                f"Warning: mixed variant ID formats detected in GWAS {gwas_config.name}. "
+                                "Parsed locus IDs when possible and kept raw IDs otherwise."
+                            )
+                            mixed_warned = True
+                        chrom, pos, ref, alt = parsed
+                        key_direct = _locus_key(chrom, pos, ref, alt)
+                        key_flip = _locus_key(chrom, pos, alt, ref)
+                        if key_direct in beta_se_by_id:
+                            var_id = key_direct
+                        elif key_flip in beta_se_by_id:
+                            var_id = key_flip
+                            beta = -beta
+                            flipped = True
+                        elif action == Action.TRAIN and record.var_id in beta_se_by_id:
+                            var_id = record.var_id
+                            mixed_seen_id = True
+                            if not mixed_warned:
+                                print(
+                                    f"Warning: mixed variant ID formats detected in GWAS {gwas_config.name}. "
+                                    "Parsed locus IDs when possible and kept raw IDs otherwise."
+                                )
+                                mixed_warned = True
+                        elif action == Action.CLASSIFY:
+                            var_id = key_direct
+                        else:
+                            if stats is not None:
+                                stats.missing_id += 1
+                            return
+                else:
+                    parsed = None
+                    if (
+                        record.chrom is not None
+                        and record.pos is not None
+                        and record.effect_allele is not None
+                        and record.other_allele is not None
+                    ):
+                        chrom = _normalize_chrom(record.chrom)
+                        pos = record.pos
+                        ref = _normalize_allele(record.other_allele)
+                        alt = _normalize_allele(record.effect_allele)
+                        parsed = (chrom, pos, ref, alt)
+                    else:
+                        parsed = _parse_locus_id(record.var_id)
+                    if parsed is None:
                         if stats is not None:
                             stats.missing_meta += 1
-                        continue
-                    chrom = _normalize_chrom(record.chrom)
-                    pos = record.pos
-                    ref = _normalize_allele(record.other_allele)
-                    alt = _normalize_allele(record.effect_allele)
+                        return
+                    chrom, pos, ref, alt = parsed
                     key_direct = _locus_key(chrom, pos, ref, alt)
                     key_flip = _locus_key(chrom, pos, alt, ref)
                     if key_direct in beta_se_by_id:
@@ -595,10 +829,10 @@ def load_gwas(
                     else:
                         if stats is not None:
                             stats.missing_id += 1
-                        continue
+                        return
                 if bucket_id is not None and n_buckets is not None:
                     if _bucket_for_key(var_id, n_buckets) != bucket_id:
-                        continue
+                        return
                 if var_id in beta_se_by_id:
                     beta_se_by_id[var_id].beta_se_list[i_trait] = BetaSe(beta=beta, se=se)
                 elif action == Action.CLASSIFY:
@@ -628,6 +862,11 @@ def load_gwas(
                         accumulator = VariantMetaAccumulator()
                         meta_by_id[var_id] = accumulator
                     accumulator.add_record(meta_record, gwas_config.name, var_id)
+
+            if first_record is not None:
+                process_record(first_record)
+            for record in reader:
+                process_record(record)
     except Exception as exc:
         raise for_context(file, exc) from exc
 
@@ -636,10 +875,36 @@ def new_beta_se_list(n_traits: int) -> list[BetaSe]:
     return [BetaSe(beta=float("nan"), se=float("nan")) for _ in range(n_traits)]
 
 
-def _open_text(path: str, *, retries: int = 3, download: bool = False) -> io.TextIOBase:
+def _build_dig_cache(data_access: "DataAccessConfig") -> object | None:
+    if DigCacheConfig is None:
+        return None
+    if not data_access.cache_dir:
+        return None
+    max_bytes = data_access.cache_max_bytes
+    ttl_days = data_access.cache_ttl_days
+    return DigCacheConfig(
+        dir=data_access.cache_dir,
+        max_bytes=max_bytes,
+        ttl_days=ttl_days,
+    )
+
+
+def _open_text(
+    path: str,
+    *,
+    retries: int = 3,
+    download: bool = False,
+    cache: object | None = None,
+) -> io.TextIOBase:
     if open_data_text is not None:
-        return _as_iterable_text(
-            open_data_text(path, encoding="utf-8", retries=retries, download=download)
+        return _IterableTextWrapper(
+            open_data_text(
+                path,
+                encoding="utf-8",
+                retries=retries,
+                download=download,
+                cache=cache,
+            )
         )
     if path.startswith("file://"):
         path = path[len("file://") :]
@@ -715,7 +980,7 @@ class _IterableTextWrapper:
 
 
 def _as_iterable_text(handle: io.TextIOBase) -> io.TextIOBase:
-    if hasattr(type(handle), "__iter__"):
+    if hasattr(handle, "__iter__") and hasattr(handle, "__next__"):
         return handle
     return _IterableTextWrapper(handle)
 
@@ -778,7 +1043,7 @@ def _resolve_gwas_path(gwas_config: "GwasConfig", data_access: "DataAccessConfig
 
 
 _VAR_ID_GUESS = re.compile(
-    r"^(?:chr)?(?P<chrom>[A-Za-z0-9]+)[^A-Za-z0-9]+(?P<pos>\\d+)[^A-Za-z0-9]+(?P<a1>[A-Za-z]+)[^A-Za-z0-9]+(?P<a2>[A-Za-z]+)$",
+    r"^(?:chr)?(?P<chrom>[A-Za-z0-9]+)[^A-Za-z0-9]+(?P<pos>\d+)[^A-Za-z0-9]+(?P<a1>[A-Za-z]+)[^A-Za-z0-9]+(?P<a2>[A-Za-z]+)$",
     re.IGNORECASE,
 )
 
@@ -846,6 +1111,7 @@ def load_data_for_ids(config: "Config", ids: list[str]) -> GwasData:
         beta_se_by_id[var_id] = IdData(new_beta_se_list(n_traits), 1.0)
 
     trait_names: list[str] = []
+    variant_mode = resolve_variant_mode(config, Action.TRAIN)
     for i_trait, gwas in enumerate(config.gwas):
         trait_names.append(gwas.name)
         load_gwas(
@@ -855,7 +1121,7 @@ def load_data_for_ids(config: "Config", ids: list[str]) -> GwasData:
             i_trait,
             Action.TRAIN,
             data_access=config.data_access,
-            variant_mode=config.variants.id_mode,
+            variant_mode=variant_mode,
         )
 
     n_data_points = len(beta_se_by_id)
