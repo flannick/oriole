@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Mapping
 import time
 import gzip
 import io
@@ -13,7 +13,6 @@ import re
 import math
 
 from ..error import new_error, for_context, for_file
-from ..math_utils.matrix import matrix_fill
 from ..options.action import Action
 from typing import TYPE_CHECKING
 
@@ -162,14 +161,7 @@ class LoadedData:
 
 
 @dataclass
-class BetaSe:
-    beta: float
-    se: float
-
-
-@dataclass
 class IdData:
-    beta_se_list: list[BetaSe]
     weight: float
 
 
@@ -237,6 +229,92 @@ class VariantMetaAccumulator:
         )
 
 
+class _VariantMatrixBuilder:
+    def __init__(
+        self,
+        n_traits: int,
+        allow_new: bool,
+        initial: Mapping[str, IdData] | None = None,
+    ) -> None:
+        self.n_traits = n_traits
+        self.allow_new = allow_new
+        self.id_to_index: dict[str, int] = {}
+        self.var_ids: list[str] = []
+        self.weights: list[float] = []
+        initial_capacity = max(1, len(initial) if initial is not None else 1024)
+        self.betas = np.full((initial_capacity, n_traits), np.nan, dtype=float)
+        self.ses = np.full((initial_capacity, n_traits), np.nan, dtype=float)
+        self.size = 0
+        if initial is not None:
+            for var_id, id_data in initial.items():
+                self._append(var_id, id_data.weight)
+
+    def __len__(self) -> int:
+        return self.size
+
+    def has_key(self, var_id: str) -> bool:
+        return var_id in self.id_to_index
+
+    def get_index(self, var_id: str) -> int | None:
+        return self.id_to_index.get(var_id)
+
+    def ensure_row(self, var_id: str, weight: float = 1.0) -> int | None:
+        index = self.id_to_index.get(var_id)
+        if index is not None:
+            return index
+        if not self.allow_new:
+            return None
+        return self._append(var_id, weight)
+
+    def _append(self, var_id: str, weight: float) -> int:
+        if self.size == self.betas.shape[0]:
+            self._grow()
+        index = self.size
+        self.size += 1
+        self.id_to_index[var_id] = index
+        self.var_ids.append(var_id)
+        self.weights.append(weight)
+        return index
+
+    def _grow(self) -> None:
+        new_capacity = max(1, self.betas.shape[0] * 2)
+        new_betas = np.full((new_capacity, self.n_traits), np.nan, dtype=float)
+        new_ses = np.full((new_capacity, self.n_traits), np.nan, dtype=float)
+        if self.size > 0:
+            new_betas[: self.size, :] = self.betas[: self.size, :]
+            new_ses[: self.size, :] = self.ses[: self.size, :]
+        self.betas = new_betas
+        self.ses = new_ses
+
+    def set_trait(self, index: int, i_trait: int, beta: float, se: float) -> None:
+        self.betas[index, i_trait] = beta
+        self.ses[index, i_trait] = se
+
+    def finalize(
+        self,
+        sort_var_ids: bool = True,
+    ) -> tuple[list[str], np.ndarray, np.ndarray, list[float]]:
+        n = self.size
+        if n == 0:
+            empty = np.full((0, self.n_traits), np.nan, dtype=float)
+            return [], empty.copy(), empty, []
+        base_betas = self.betas[:n, :]
+        base_ses = self.ses[:n, :]
+        if sort_var_ids:
+            order = sorted(range(n), key=self.var_ids.__getitem__)
+            var_ids = [self.var_ids[i] for i in order]
+            weights = [self.weights[i] for i in order]
+            betas = base_betas[order, :]
+            ses = base_ses[order, :]
+            return var_ids, betas, ses, weights
+        return (
+            list(self.var_ids),
+            np.array(base_betas, copy=True),
+            np.array(base_ses, copy=True),
+            list(self.weights),
+        )
+
+
 def load_data(config: Config, action: Action) -> LoadedData:
     n_traits = len(config.gwas)
     need_meta = (
@@ -254,14 +332,19 @@ def load_data(config: Config, action: Action) -> LoadedData:
     if action == Action.TRAIN:
         print(f"Loading training IDs from {config.train.ids_file}")
         ids_start = time.perf_counter()
-        beta_se_by_id = load_ids(config.train.ids_file, n_traits, variant_mode)
+        ids_with_weights = load_ids(config.train.ids_file, n_traits, variant_mode)
         print(
-            f"Loaded {len(beta_se_by_id)} training IDs in "
+            f"Loaded {len(ids_with_weights)} training IDs in "
             f"{time.perf_counter() - ids_start:.2f}s"
+        )
+        store = _VariantMatrixBuilder(
+            n_traits=n_traits,
+            allow_new=False,
+            initial=ids_with_weights,
         )
     else:
         print("Loading full GWAS for classification (all IDs).")
-        beta_se_by_id = {}
+        store = _VariantMatrixBuilder(n_traits=n_traits, allow_new=True)
 
     trait_names: list[str] = []
     gwas_start = time.perf_counter()
@@ -270,7 +353,7 @@ def load_data(config: Config, action: Action) -> LoadedData:
         trait_names.append(gwas.name)
         trait_start = time.perf_counter()
         load_gwas(
-            beta_se_by_id,
+            store,
             gwas,
             n_traits,
             i_trait,
@@ -288,19 +371,8 @@ def load_data(config: Config, action: Action) -> LoadedData:
         )
     print(f"Finished GWAS load in {time.perf_counter() - gwas_start:.2f}s")
     _write_flip_log(config.files.flip_log, flip_stats)
-
-    n_data_points = len(beta_se_by_id)
-    var_ids: list[str] = []
-    betas = matrix_fill(n_data_points, n_traits, lambda _i, _j: np.nan)
-    ses = matrix_fill(n_data_points, n_traits, lambda _i, _j: np.nan)
-    weights = Weights.new(n_data_points)
-
-    for i_data_point, (var_id, id_data) in enumerate(sorted(beta_se_by_id.items())):
-        var_ids.append(var_id)
-        weights.add(id_data.weight)
-        for i_trait, beta_se in enumerate(id_data.beta_se_list):
-            betas[i_data_point, i_trait] = beta_se.beta
-            ses[i_data_point, i_trait] = beta_se.se
+    var_ids, betas, ses, weights_list = store.finalize(sort_var_ids=True)
+    weights = Weights(weights=weights_list, sum=float(sum(weights_list)))
 
     if action == Action.TRAIN:
         missing_by_trait: dict[str, list[str]] = {name: [] for name in trait_names}
@@ -379,12 +451,12 @@ def load_data_bucket(
     meta_by_id: dict[str, VariantMetaAccumulator] | None = (
         {} if need_meta else None
     )
-    beta_se_by_id: Dict[str, IdData] = {}
+    store = _VariantMatrixBuilder(n_traits=n_traits, allow_new=True)
     trait_names: list[str] = []
     for i_trait, gwas in enumerate(config.gwas):
         trait_names.append(gwas.name)
         load_gwas(
-            beta_se_by_id,
+            store,
             gwas,
             n_traits,
             i_trait,
@@ -398,16 +470,7 @@ def load_data_bucket(
             n_buckets=n_buckets,
         )
 
-    n_data_points = len(beta_se_by_id)
-    var_ids: list[str] = []
-    betas = matrix_fill(n_data_points, n_traits, lambda _i, _j: np.nan)
-    ses = matrix_fill(n_data_points, n_traits, lambda _i, _j: np.nan)
-
-    for i_data_point, (var_id, id_data) in enumerate(sorted(beta_se_by_id.items())):
-        var_ids.append(var_id)
-        for i_trait, beta_se in enumerate(id_data.beta_se_list):
-            betas[i_data_point, i_trait] = beta_se.beta
-            ses[i_data_point, i_trait] = beta_se.se
+    var_ids, betas, ses, _weights = store.finalize(sort_var_ids=True)
 
     endo_names = [item.name for item in config.endophenotypes]
     meta = Meta(trait_names=trait_names, var_ids=var_ids, endo_names=endo_names)
@@ -566,13 +629,13 @@ def load_ids(ids_file: str, n_traits: int, variant_mode: str) -> Dict[str, IdDat
     beta_se_by_id: Dict[str, IdData] = {}
     if ids_file == "":
         return beta_se_by_id
+    _ = n_traits
     try:
         for id_value, weight in _read_ids_rows(ids_file, variant_mode):
             if id_value not in beta_se_by_id:
-                beta_se_list = new_beta_se_list(n_traits)
                 if weight < 0.0:
                     raise new_error(f"Negative weight ({weight}) for id {id_value}")
-                beta_se_by_id[id_value] = IdData(beta_se_list, weight)
+                beta_se_by_id[id_value] = IdData(weight=weight)
     except Exception as exc:
         raise for_file(ids_file, exc) from exc
     return beta_se_by_id
@@ -675,7 +738,7 @@ def resolve_variant_mode(config: "Config", action: Action) -> str:
 
 
 def load_gwas(
-    beta_se_by_id: Dict[str, IdData],
+    store: _VariantMatrixBuilder,
     gwas_config: "GwasConfig",
     n_traits: int,
     i_trait: int,
@@ -775,13 +838,13 @@ def load_gwas(
                         chrom, pos, ref, alt = parsed
                         key_direct = _locus_key(chrom, pos, ref, alt)
                         key_flip = _locus_key(chrom, pos, alt, ref)
-                        if key_direct in beta_se_by_id:
+                        if store.has_key(key_direct):
                             var_id = key_direct
-                        elif key_flip in beta_se_by_id:
+                        elif store.has_key(key_flip):
                             var_id = key_flip
                             beta = -beta
                             flipped = True
-                        elif action == Action.TRAIN and record.var_id in beta_se_by_id:
+                        elif action == Action.TRAIN and store.has_key(record.var_id):
                             var_id = record.var_id
                             mixed_seen_id = True
                             if not mixed_warned:
@@ -791,7 +854,9 @@ def load_gwas(
                                 )
                                 mixed_warned = True
                         elif action == Action.CLASSIFY:
-                            var_id = key_direct
+                            # Keep the first-seen record ID form for classify output;
+                            # cross-trait matching still uses direct/flip checks above.
+                            var_id = record.var_id
                         else:
                             if stats is not None:
                                 stats.missing_id += 1
@@ -818,9 +883,9 @@ def load_gwas(
                     chrom, pos, ref, alt = parsed
                     key_direct = _locus_key(chrom, pos, ref, alt)
                     key_flip = _locus_key(chrom, pos, alt, ref)
-                    if key_direct in beta_se_by_id:
+                    if store.has_key(key_direct):
                         var_id = key_direct
-                    elif key_flip in beta_se_by_id:
+                    elif store.has_key(key_flip):
                         var_id = key_flip
                         beta = -beta
                         flipped = True
@@ -833,12 +898,14 @@ def load_gwas(
                 if bucket_id is not None and n_buckets is not None:
                     if _bucket_for_key(var_id, n_buckets) != bucket_id:
                         return
-                if var_id in beta_se_by_id:
-                    beta_se_by_id[var_id].beta_se_list[i_trait] = BetaSe(beta=beta, se=se)
-                elif action == Action.CLASSIFY:
-                    beta_se_list = new_beta_se_list(n_traits)
-                    beta_se_list[i_trait] = BetaSe(beta=beta, se=se)
-                    beta_se_by_id[var_id] = IdData(beta_se_list, 1.0)
+                _ = n_traits
+                index = store.ensure_row(
+                    var_id,
+                    weight=1.0,
+                )
+                if index is None:
+                    return
+                store.set_trait(index, i_trait, beta, se)
                 if stats is not None:
                     stats.matched += 1
                     if flipped:
@@ -869,10 +936,6 @@ def load_gwas(
                 process_record(record)
     except Exception as exc:
         raise for_context(file, exc) from exc
-
-
-def new_beta_se_list(n_traits: int) -> list[BetaSe]:
-    return [BetaSe(beta=float("nan"), se=float("nan")) for _ in range(n_traits)]
 
 
 def _build_dig_cache(data_access: "DataAccessConfig") -> object | None:
@@ -1106,16 +1169,22 @@ def _guess_variant_meta(var_id: str, guess_order: str) -> VariantMeta | None:
 
 def load_data_for_ids(config: "Config", ids: list[str]) -> GwasData:
     n_traits = len(config.gwas)
-    beta_se_by_id: Dict[str, IdData] = {}
+    id_map: dict[str, IdData] = {}
     for var_id in ids:
-        beta_se_by_id[var_id] = IdData(new_beta_se_list(n_traits), 1.0)
+        if var_id not in id_map:
+            id_map[var_id] = IdData(weight=1.0)
+    store = _VariantMatrixBuilder(
+        n_traits=n_traits,
+        allow_new=False,
+        initial=id_map,
+    )
 
     trait_names: list[str] = []
     variant_mode = resolve_variant_mode(config, Action.TRAIN)
     for i_trait, gwas in enumerate(config.gwas):
         trait_names.append(gwas.name)
         load_gwas(
-            beta_se_by_id,
+            store,
             gwas,
             n_traits,
             i_trait,
@@ -1123,17 +1192,7 @@ def load_data_for_ids(config: "Config", ids: list[str]) -> GwasData:
             data_access=config.data_access,
             variant_mode=variant_mode,
         )
-
-    n_data_points = len(beta_se_by_id)
-    var_ids: list[str] = []
-    betas = matrix_fill(n_data_points, n_traits, lambda _i, _j: np.nan)
-    ses = matrix_fill(n_data_points, n_traits, lambda _i, _j: np.nan)
-
-    for i_data_point, (var_id, id_data) in enumerate(beta_se_by_id.items()):
-        var_ids.append(var_id)
-        for i_trait, beta_se in enumerate(id_data.beta_se_list):
-            betas[i_data_point, i_trait] = beta_se.beta
-            ses[i_data_point, i_trait] = beta_se.se
+    var_ids, betas, ses, _weights = store.finalize(sort_var_ids=False)
 
     missing_by_trait: dict[str, list[str]] = {name: [] for name in trait_names}
     for i_data_point, var_id in enumerate(var_ids):
