@@ -46,7 +46,7 @@ def test_trait_edges_classify_analytical(tmp_path):
     with out_file.open("r", encoding="utf-8") as handle:
         header = handle.readline().strip("\n")
         assert header.startswith(
-            "id\tE_mean_post\tE_std_post\tE_mean_calc\tE_beta_gls\tE_se_gls\tE_z_gls\tE_p_gls"
+            "id\tn_traits_observed\tE_mean_post\tE_std_post\tE_mean_calc\tE_beta_gls\tE_se_gls\tE_z_gls\tE_p_gls"
         )
         parts = header.split("\t")
         assert parts[-3:] == ["trait1", "trait2", "trait3"]

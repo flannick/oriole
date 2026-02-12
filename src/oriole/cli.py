@@ -2,12 +2,19 @@ from __future__ import annotations
 
 from .check import check_config
 from .error import MocasaError, new_error
-from .options.cli import get_choice, CoreOptions, ImportPhenetOptions, ScaleSigmasOptions
+from .options.cli import (
+    get_choice,
+    CoreOptions,
+    ImportPhenetOptions,
+    ScaleSigmasOptions,
+    ConvertSsfOptions,
+)
 from .options.config import load_config
 from .options.check_pre import check_prerequisites
 from .options.action import Action
 from .train.train import train_or_check
 from .classify.classify import classify_or_check
+from .classify.convert_ssf import convert_classify_tsv_to_ssf
 from .phenet import import_phenet
 from .params.transform import scale_sigmas
 
@@ -37,12 +44,20 @@ def run(argv: list[str] | None = None) -> None:
                 choice.dry,
                 inference=choice.inference,
                 chunk_size=choice.chunk_size,
+                input_order_override=choice.input_order_override,
                 verbose=choice.verbose,
             )
     elif isinstance(choice, ImportPhenetOptions):
         import_phenet(choice)
     elif isinstance(choice, ScaleSigmasOptions):
         scale_sigmas(choice)
+    elif isinstance(choice, ConvertSsfOptions):
+        convert_classify_tsv_to_ssf(
+            choice.in_file,
+            choice.out_file,
+            guess_fields=choice.guess_fields,
+            variant_id_order=choice.variant_id_order,
+        )
     else:
         raise MocasaError("Oriole error", "Unknown choice")
 

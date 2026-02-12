@@ -480,7 +480,7 @@ def load_data_bucket(
         variant_meta = finalize_variant_meta(
             meta_by_id, var_ids, allow_meta_guess, guess_order
         )
-    weights = Weights.new(n_data_points)
+    weights = Weights.new(len(var_ids))
     return LoadedData(gwas_data=gwas_data, weights=weights, variant_meta=variant_meta)
 
 

@@ -15,6 +15,7 @@ class CoreOptions:
     match_rust: bool
     inference: str
     chunk_size: int | None
+    input_order_override: str | None
     plot_convergence_out_file: str | None
     plot_cv_out_file: str | None
     verbose: bool
@@ -33,6 +34,14 @@ class ScaleSigmasOptions:
     in_file: str
     scale: float
     out_file: str
+
+
+@dataclass
+class ConvertSsfOptions:
+    in_file: str
+    out_file: str
+    guess_fields: bool
+    variant_id_order: str
 
 
 def _missing_option_error(name: str, long_opt: str, short_opt: str) -> MocasaError:
@@ -66,6 +75,19 @@ def _build_parser() -> argparse.ArgumentParser:
             type=int,
             help="Number of variants to process per chunk (default ~2GB).",
         )
+        group = sub.add_mutually_exclusive_group()
+        group.add_argument(
+            "--sorted",
+            action="store_true",
+            dest="sorted_mode",
+            help="Force sorted single-pass streaming mode for classification.",
+        )
+        group.add_argument(
+            "--unsorted",
+            action="store_true",
+            dest="unsorted_mode",
+            help="Force unsorted hash-bucket streaming mode for classification.",
+        )
         sub.add_argument(
             "--plot-convergence-out-file",
             dest="plot_convergence_out_file",
@@ -94,6 +116,24 @@ def _build_parser() -> argparse.ArgumentParser:
     scale_sigmas.add_argument("-s", "--scale", dest="scale", type=float)
     scale_sigmas.add_argument("-o", "--out-file", dest="out_file")
 
+    convert_ssf = subparsers.add_parser("convert-ssf")
+    convert_ssf.add_argument("-i", "--in-file", dest="in_file")
+    convert_ssf.add_argument("-o", "--out-file", dest="out_file")
+    convert_ssf.add_argument(
+        "--no-guess-fields",
+        dest="guess_fields",
+        action="store_false",
+        default=True,
+        help="Disable guessing chromosome/position/alleles from variant IDs.",
+    )
+    convert_ssf.add_argument(
+        "--variant-id-order",
+        dest="variant_id_order",
+        choices=["effect_other", "other_effect"],
+        default="effect_other",
+        help="How to interpret locus IDs like chrom:pos:A1:A2 when guessing fields.",
+    )
+
     return parser
 
 
@@ -112,6 +152,9 @@ def get_choice(argv: list[str] | None = None):
             match_rust=bool(args.match_rust),
             inference=("gibbs" if args.gibbs else args.inference),
             chunk_size=args.chunk_size,
+            input_order_override=(
+                "sorted" if args.sorted_mode else ("unsorted" if args.unsorted_mode else None)
+            ),
             plot_convergence_out_file=args.plot_convergence_out_file,
             plot_cv_out_file=args.plot_cv_out_file,
             verbose=bool(args.verbose),
@@ -143,5 +186,17 @@ def get_choice(argv: list[str] | None = None):
         if not args.out_file:
             raise _missing_option_error("output params file", "out-file", "o")
         return ScaleSigmasOptions(in_file=args.in_file, scale=args.scale, out_file=args.out_file)
+
+    if args.command == "convert-ssf":
+        if not args.in_file:
+            raise _missing_option_error("input classify file", "in-file", "i")
+        if not args.out_file:
+            raise _missing_option_error("output GWAS-SSF file", "out-file", "o")
+        return ConvertSsfOptions(
+            in_file=args.in_file,
+            out_file=args.out_file,
+            guess_fields=bool(args.guess_fields),
+            variant_id_order=args.variant_id_order,
+        )
 
     raise new_error(f"Unknown subcommand {args.command}.")

@@ -216,6 +216,16 @@ might override them.
 - `n_steps_burn_in` (default: `1000`) Gibbs burn-in steps; only used for Gibbs.
 - `n_samples` (default: `1000`) Gibbs samples for classification.
 - `out_file` (default: `classify_out.tsv`) output scores path.
+- `min_trait_coverage_pct` (default: `50.0`) minimum percent of traits that must
+  be observed for a variant to be analyzed in classification. Variants below this
+  threshold are skipped before inference.
+- `input_order` (default: `auto`) controls streaming strategy when classification
+  is memory-capped.
+  - `auto`: probe the first ~1000 rows and use sorted single-pass mode when
+    possible, otherwise use unsorted bucketed mode.
+  - `sorted`: force sorted single-pass mode; errors if any file violates sorted
+    assumptions.
+  - `unsorted`: force robust unsorted bucketed mode.
 - `write_full` (default: `true`) writes the full ORIOLE classify TSV. Set to
   `false` if you only want the GWAS-SSF output.
 - `gwas_ssf_out_file` (default: none) optional GWAS-SSF output path. When set,
@@ -242,6 +252,10 @@ might override them.
 - `--gibbs` (default: false) shortcut for `--inference gibbs`.
 - `--chunk-size` (default: auto) controls batch size for analytic/variational;
   increase to speed up if you have RAM.
+- `--sorted` (default: false) force sorted single-pass streaming classification.
+  Fails fast if a file is not sorted as expected.
+- `--unsorted` (default: false) force unsorted bucketed streaming classification.
+  Use this when sorted auto-detection is wrong for your input files.
 - `--plot-convergence-out-file` (default: none) writes a convergence plot.
 - `--plot-cv-out-file` (default: none) writes the CV grid plot.
 
@@ -258,6 +272,16 @@ might override them.
 - `-s/--scale` (required) scale factor for trait residuals.
 - `-o/--out-file` (required) output params JSON.
   Intuition: use to calibrate trait noise when integrating new datasets.
+
+`oriole convert-ssf`
+- `-i/--in-file` (required) full ORIOLE classify TSV/TSV.GZ input.
+- `-o/--out-file` (required) GWAS-SSF output file path.
+- `--no-guess-fields` (default: guessing enabled) disables chromosome/position/
+  allele parsing from variant IDs.
+- `--variant-id-order {effect_other,other_effect}` (default: `effect_other`)
+  controls interpretation of IDs like `1:752566:A:G` when guessing fields.
+  Intuition: use this to convert existing classify outputs without rerunning
+  classification.
 
 ## Model Overview
 
@@ -361,6 +385,10 @@ Each classify output TSV includes one row per variant and the following fields:
 
 `id`
 - Variant identifier.
+
+`n_traits_observed`
+- Number of traits with non-missing beta and SE for this variant in the loaded
+  GWAS inputs. This is used by `classify.min_trait_coverage_pct` filtering.
 
 Per endophenotype `{endo}` (in this order):
 - `{endo}_mean_post`: posterior mean of E.  
@@ -568,6 +596,12 @@ When `variants.id_mode = "locus"`, GWAS files must include columns for
 the sign of `beta` when `ref/alt` are swapped. A summary of flips is written to
 `files.flip_log` when configured.
 
+For sorted single-pass mode (`classify.input_order = "auto"`/`"sorted"` or
+`--sorted`), ORIOLE assumes files are sorted. In locus mode, chromosomes may be
+in any order, but chromosome block order must be consistent across files and
+positions must be nondecreasing within each chromosome block. If this is violated,
+classification errors and suggests rerunning with `--unsorted`.
+
 ---
 
 ## Flags
@@ -590,6 +624,12 @@ the sign of `beta` when `ref/alt` are swapped. A summary of flips is written to
 
 - `--chunk-size <N>`
   Number of variants to process per chunk. Default targets ~2GB RAM. Use `1` to disable vectorization.
+
+- `--sorted`
+  Force sorted single-pass streaming classification.
+
+- `--unsorted`
+  Force unsorted hash-bucket streaming classification.
 
 - `-d, --dry`
   Dry run (load data, check config, but do not train/classify).
@@ -646,7 +686,7 @@ oriole train -f config.toml [--inference auto|analytic|variational|gibbs] [--gib
 ### Classify
 
 ```bash
-oriole classify -f config.toml [--inference auto|analytic|variational|gibbs] [--gibbs] [--chunk-size N]
+oriole classify -f config.toml [--inference auto|analytic|variational|gibbs] [--gibbs] [--chunk-size N] [--sorted|--unsorted]
 ```
 
 ---
@@ -755,6 +795,17 @@ Columns included (when available):
 If multiple endophenotypes are defined, ORIOLE writes one GWAS-SSF file per
 endophenotype by appending `_{endo}` to the output filename (preserving `.gz`).
 Set `classify.write_full = false` if you only want the GWAS-SSF output.
+The `n_traits_observed` field is not added to GWAS-SSF output to keep strict
+format compatibility.
+
+You can also convert an existing full classify output directly:
+
+```bash
+oriole convert-ssf -i classify_out.tsv.gz -o classify_ssf.tsv.gz
+```
+
+If multiple endophenotypes are present, ORIOLE writes one SSF file per
+endophenotype (`classify_ssf_E1.tsv.gz`, `classify_ssf_E2.tsv.gz`, ...).
 
 ### Early stopping for training
 

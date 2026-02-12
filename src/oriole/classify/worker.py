@@ -37,11 +37,13 @@ class Classification:
         e_mean_calculated: np.ndarray,
         e_beta_gls: np.ndarray,
         e_se_gls: np.ndarray,
+        n_traits_observed: int,
     ) -> None:
         self.sampled = sampled
         self.e_mean_calculated = e_mean_calculated
         self.e_beta_gls = e_beta_gls
         self.e_se_gls = e_se_gls
+        self.n_traits_observed = n_traits_observed
 
 
 class MessageToCentral:
@@ -208,6 +210,7 @@ def classify_worker(
                 e_mean_calculated=mu_calculated,
                 e_beta_gls=e_beta_gls,
                 e_se_gls=e_se_gls,
+                n_traits_observed=len(is_col),
             )
             in_queue.put(MessageToCentral(i_thread, classification))
             if inference == "gibbs":

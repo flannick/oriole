@@ -88,6 +88,8 @@ class ClassifyConfig:
     gwas_ssf_out_file: Optional[str] = None
     gwas_ssf_guess_fields: bool = True
     gwas_ssf_variant_id_order: str = "effect_other"
+    input_order: str = "auto"
+    min_trait_coverage_pct: float = 50.0
     mu_specified: bool = False
     tau_specified: bool = False
     mu: float = 0.0
@@ -397,12 +399,21 @@ def load_config(path: str) -> Config:
     classify_data.setdefault("gwas_ssf_out_file", None)
     classify_data.setdefault("gwas_ssf_guess_fields", True)
     classify_data.setdefault("gwas_ssf_variant_id_order", "effect_other")
+    classify_data.setdefault("input_order", "auto")
+    classify_data.setdefault("min_trait_coverage_pct", 50.0)
     classify_data.setdefault("trace_ids", [])
     classify_data.setdefault("t_pinned", None)
     classify_data.setdefault("mu_specified", classify_mu_specified)
     classify_data.setdefault("tau_specified", classify_tau_specified)
     classify_data.setdefault("mu", classify_mu)
     classify_data.setdefault("tau", classify_tau)
+    input_order = str(classify_data.get("input_order", "auto")).lower()
+    if input_order not in {"auto", "sorted", "unsorted"}:
+        raise MocasaError(
+            ErrorKind.TOML_DE,
+            "classify.input_order must be 'auto', 'sorted', or 'unsorted'.",
+        )
+    classify_data["input_order"] = input_order
     classify = ClassifyConfig(**classify_data)
     return Config(
         files=files,
@@ -452,6 +463,8 @@ def dump_config(config: Config) -> str:
             "gwas_ssf_out_file": item.gwas_ssf_out_file,
             "gwas_ssf_guess_fields": item.gwas_ssf_guess_fields,
             "gwas_ssf_variant_id_order": item.gwas_ssf_variant_id_order,
+            "input_order": item.input_order,
+            "min_trait_coverage_pct": item.min_trait_coverage_pct,
             "trace_ids": item.trace_ids,
             "t_pinned": item.t_pinned,
             "mu": item.mu,
